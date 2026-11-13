@@ -1,0 +1,186 @@
+{
+  "latin_tinta": {
+    "name": "La Tinta Digital",
+    "base_url": "https://latintadigital.com.ar",
+    "wp_posts_endpoint": "/wp-json/wp/v2/posts",
+    "wp_media_endpoint": "/wp-json/wp/v2/media",
+    "jwt_token_url": "/wp-json/jwt-auth/v1/token",
+    "username_env": "LT_USER",
+    "password_env": "LT_PASS",
+    "allowed_telegram_ids": {
+      "6165724246": "Maty"
+    },
+    "default_status": "publish",
+    "default_author": null,
+    "default_categories": [],
+    "default_tags": []
+  },
+  "palabras_red": {
+    "name": "Palabras en la Red",
+    "base_url": "https://palabrasenlared.com.ar",
+    "wp_posts_endpoint": "/wp-json/wp/v2/posts",
+    "wp_media_endpoint": "/wp-json/wp/v2/media",
+    "jwt_token_url": "/wp-json/jwt-auth/v1/token",
+    "username_env": "PR_USER",
+    "password_env": "PR_PASS",
+    "allowed_telegram_ids": {
+      "6165724246": "Maty"
+    },
+    "default_status": "publish",
+    "default_author": null,
+    "default_categories": [],
+    "default_tags": []
+  },
+  "lavoz_portena": {
+    "name": "La Voz Porteña",
+    "base_url": "https://xn--lavozportea-beb.com.ar",
+    "wp_posts_endpoint": "/wp-json/wp/v2/posts",
+    "wp_media_endpoint": "/wp-json/wp/v2/media",
+    "jwt_token_url": "/wp-json/jwt-auth/v1/token",
+    "username_env": "LVP_USER",
+    "password_env": "LVP_PASS",
+    "allowed_telegram_ids": {
+      "6165724246": "Maty",
+      "7737962070": "Mama"
+    },
+    "default_status": "publish",
+    "default_author": null,
+    "default_categories": [],
+    "default_tags": []
+  },
+  "informate_ciudad": {
+    "name": "Informate Ciudad",
+    "base_url": "https://informateciudad.com.ar",
+    "wp_posts_endpoint": "/wp-json/wp/v2/posts",
+    "wp_media_endpoint": "/wp-json/wp/v2/media",
+    "jwt_token_url": "/wp-json/jwt-auth/v1/token",
+    "username_env": "IC_USER",
+    "password_env": "IC_PASS",
+    "allowed_telegram_ids": {
+      "6165724246": "Maty",
+      "7737962070": "Mama"
+    },
+    "default_status": "publish",
+    "default_author": null,
+    "default_categories": [],
+    "default_tags": []
+  },
+  "la_posta_diario": {
+    "name": "La Posta Diario",
+    "base_url": "https://lapostadiario.com.ar",
+    "wp_posts_endpoint": "/wp-json/wp/v2/posts",
+    "wp_media_endpoint": "/wp-json/wp/v2/media",
+    "jwt_token_url": "/wp-json/jwt-auth/v1/token",
+    "username_env": "LPD_USER",
+    "password_env": "LPD_PASS",
+    "allowed_telegram_ids": {
+      "6165724246": "Maty",
+      "7189979601": "Martincito"
+    },
+    "default_status": "publish",
+    "default_author": null,
+    "default_categories": [],
+    "default_tags": []
+  },
+  "el_punto_noticias": {
+    "name": "El Punto Noticias",
+    "base_url": "https://elpuntonoticias.com.ar/",
+    "wp_posts_endpoint": "/wp-json/wp/v2/posts",
+    "wp_media_endpoint": "/wp-json/wp/v2/media",
+    "jwt_token_url": "/wp-json/jwt-auth/v1/token",
+    "username_env": "EPN_USER",
+    "password_env": "EPN_PASS",
+    "allowed_telegram_ids": {
+      "6165724246": "Maty",
+      "8273626721": "Nicole"
+    },
+    "default_status": "publish",
+    "default_author": null,
+    "default_categories": [],
+    "default_tags": []
+  },
+  "diario_ciudad": {
+    "name": "Diario Ciudad",
+    "base_url": "https://diariociudad.com.ar",
+    "wp_posts_endpoint": "/wp-json/wp/v2/posts",
+    "wp_media_endpoint": "/wp-json/wp/v2/media",
+    "jwt_token_url": "/wp-json/jwt-auth/v1/token",
+    "username_env": "DC_USER",
+    "password_env": "DC_PASS",
+    "allowed_telegram_ids": {
+      "6165724246": "Maty",
+      "1972562469": "Hernan"
+    },
+    "default_status": "publish",
+    "default_author": null,
+    "default_categories": [],
+    "default_tags": []
+  },
+ "agenda_ba": {
+    "name": "Agenda BA",
+    "base_url": "https://agendaba.com.ar/",
+    "wp_posts_endpoint": "/wp-json/wp/v2/posts",
+    "wp_media_endpoint": "/wp-json/wp/v2/media",
+    "jwt_token_url": "/wp-json/jwt-auth/v1/token",
+    "username_env": "ABA_USER",
+    "password_env": "ABA_PASS",
+    "allowed_telegram_ids": {
+      "6165724246": "Maty",
+      "7216450573": "Max"
+    },
+    "default_status": "publish",
+    "default_author": null,
+    "default_categories": [],
+    "default_tags": []
+  },
+  "egos_noticias": {
+    "name": "Egos Argentinos",
+    "base_url": "https://egosargentinos.com.ar/",
+    "wp_posts_endpoint": "/wp-json/wp/v2/posts",
+    "wp_media_endpoint": "/wp-json/wp/v2/media",
+    "jwt_token_url": "/wp-json/jwt-auth/v1/token",
+    "username_env": "EA_USER",
+    "password_env": "EA_PASS",
+    "allowed_telegram_ids": {
+      "6165724246": "Maty",
+      "1972562469": "Hernan"
+    },
+    "default_status": "publish",
+    "default_author": null,
+    "default_categories": [],
+    "default_tags": []
+  }
+,
+  "pulsoporteno": {
+    "name": "Pulso Porteño",
+    "base_url": "https://xn--pulsoporteo-beb.com.ar",
+    "wp_posts_endpoint": "/wp-json/wp/v2/posts",
+    "wp_media_endpoint": "/wp-json/wp/v2/media",
+    "jwt_token_url": "/wp-json/jwt-auth/v1/token",
+    "username_env": "PP_USER",
+    "password_env": "PP_PASS",
+    "allowed_telegram_ids": {
+      "6165724246": "Maty"
+    },
+    "default_status": "publish",
+    "default_author": null,
+    "default_categories": [],
+    "default_tags": []
+  },
+  "horizonteba": {
+    "name": "Horizonte BA",
+    "base_url": "https://horizonteba.com.ar",
+    "wp_posts_endpoint": "/wp-json/wp/v2/posts",
+    "wp_media_endpoint": "/wp-json/wp/v2/media",
+    "jwt_token_url": "/wp-json/jwt-auth/v1/token",
+    "username_env": "HB_USER",
+    "password_env": "HB_PASS",
+    "allowed_telegram_ids": {
+      "6165724246": "Maty"
+    },
+    "default_status": "publish",
+    "default_author": null,
+    "default_categories": [],
+    "default_tags": []
+  }
+}

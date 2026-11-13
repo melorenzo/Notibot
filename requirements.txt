@@ -1,0 +1,19 @@
+python-telegram-bot==21.10
+requests==2.32.3
+beautifulsoup4==4.12.3
+selenium==4.27.1
+python-dotenv==1.0.1
+pillow==11.0.0
+google-cloud-aiplatform==1.75.0
+google-auth==2.37.0
+google-cloud-storage==2.19.0
+google-genai==0.3.0
+tweepy==4.14.0
+groq==0.35.0
+# parsing HTML con selectores adaptativos (scraping/dom.py)
+scrapling==0.5.1
+# panel web (panel/app.py)
+fastapi==0.115.6
+uvicorn==0.34.0
+jinja2==3.1.5
+python-multipart==0.0.20

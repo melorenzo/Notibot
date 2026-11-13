@@ -1,0 +1,32 @@
+# Estado y artefactos de ejecución (se montan como volumen en producción)
+data/
+logs/
+debug/
+uploading/
+imagenes/
+old_version/
+salidas_*.json
+
+# Secretos: nunca dentro de la imagen
+variables.env
+config/secrets.env
+credentials.json
+keys/
+token_jwt/*.json
+token_jwt/cookies_linkedin.json
+# scripts viejos con credenciales en texto plano (no deben viajar en la imagen)
+token_jwt/actualizar_token.py
+token_jwt/probando_token_*.py
+.jwt_cache.json
+
+# Backups y paquetes
+config/backups/
+deploy/backup/
+deploy/*.tar.gz
+
+# Basura de desarrollo
+.git/
+__pycache__/
+**/__pycache__/
+*.pyc
+.ruff_cache/

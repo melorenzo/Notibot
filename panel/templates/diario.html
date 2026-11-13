@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block titulo %}{{ fila.nombre }}{% endblock %}
+{% block cuerpo %}
+<header class="top">
+  <div>
+    <a class="volver" href="/">← Tablero</a>
+    <h1>{{ fila.nombre }}</h1>
+    <p class="sub"><a href="{{ fila.url }}" target="_blank" rel="noopener">{{ fila.host }}</a> · dueño: {{ fila.owner }}</p>
+  </div>
+  <div class="top-acciones">
+    <span class="badge {{ fila.salud }}">{{ fila.salud_txt }}</span>
+    <span class="badge {{ 'ok' if fila.activo else 'pausado' }}">{{ 'Activo' if fila.activo else 'Pausado' }}</span>
+  </div>
+</header>
+
+{% if ok %}<div class="alerta ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alerta err">{{ err }}</div>{% endif %}
+
+<section class="kpis kpis-mini">
+  <div class="kpi"><span class="kpi-label">Notas del bot</span><strong>{{ fila.total_nb }}</strong><span class="kpi-foot">{{ fila.notas_hoy }} hoy · {{ fila.notas_7d }} en 7 días</span></div>
+  <div class="kpi"><span class="kpi-label">Última carga</span><strong class="chico">{{ fila.nb_ultima_hace }}</strong><span class="kpi-foot">{{ fila.nb_ultima_txt }}</span></div>
+  <div class="kpi"><span class="kpi-label">Entradas en WordPress</span><strong>{{ fila.wp_posts if fila.wp_posts is not none else '—' }}</strong><span class="kpi-foot">última: {{ fila.wp_ultimo_hace }}</span></div>
+  <div class="kpi"><span class="kpi-label">Programación</span><strong class="chico">{{ fila.horarios_txt }}</strong><span class="kpi-foot">{{ fila.modo }} · {{ fila.notas_por_corrida }} nota(s) por corrida</span></div>
+</section>
+
+<div class="grid-2">
+  <section class="card">
+    <div class="card-head"><h2>Historial del bot</h2><span class="hint">últimas 20 notas</span></div>
+    {% if fila.historial %}
+    <ul class="lista">
+      {% for h in fila.historial %}
+      <li>
+        <div class="lista-txt">
+          <span class="fuerte">{{ h.titulo|truncate(90) }}</span>
+          <span class="mini">{{ h.fecha_txt }} · {{ h.fuente }}{% if h.post_id %} · ID {{ h.post_id }}{% endif %}{% if h.tono %} · {{ h.tono }}{% endif %}</span>
+        </div>
+        <span class="mini ahora">{{ h.hace }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="vacio">Este diario todavía no tiene notas publicadas por el bot.</p>
+    {% endif %}
+
+    <div class="card-head separado"><h2>Log de la última corrida</h2></div>
+    {% if fila.log %}
+    <pre class="log">{{ fila.log }}</pre>
+    {% else %}
+    <p class="vacio">Sin log todavía.</p>
+    {% endif %}
+  </section>
+
+  <div class="col">
+    <section class="card">
+      <div class="card-head"><h2>Correr ahora</h2></div>
+      <form method="post" action="/diarios/{{ fila.slug }}/correr" class="form-inline">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="notas">Notas</label>
+        <select id="notas" name="notas">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+        <button class="btn primary" type="submit">Publicar ahora</button>
+      </form>
+      <p class="mini">La corrida scrapea, reescribe con IA y publica. Tarda unos minutos y deja el detalle en el log.</p>
+      {% if corridas.cola and fila.slug in corridas.cola %}
+      <div class="alerta info">En cola: arranca cuando termine la corrida en curso.</div>
+      {% elif corridas.running and fila.slug in corridas.running %}
+      <div class="alerta info">Hay una corrida en curso para este diario.</div>
+      {% elif corridas.last.get(fila.slug) %}
+      <p class="mini">Última corrida: {{ corridas.last[fila.slug].inicio }} · {{ 'ok' if corridas.last[fila.slug].ok else 'con error' }} · {{ corridas.last[fila.slug].duracion_s }} s</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Estado del sitio</h2></div>
+      <dl class="datos">
+        <dt>WordPress</dt><dd>{{ 'responde' if fila.wp_ok else ('error: ' ~ (fila.wp_error or 'sin respuesta')) }}</dd>
+        <dt>Última entrada</dt><dd>{{ fila.wp_ultimo_txt }} ({{ fila.wp_ultimo_hace }})</dd>
+        <dt>Credenciales</dt><dd>{{ 'configuradas' if fila.tiene_creds else 'faltan' }}</dd>
+        <dt>Variables</dt><dd><code>{{ fila.usuario_env }}</code> / <code>{{ fila.clave_env }}</code></dd>
+        <dt>Endpoints</dt><dd><code>{{ fila.endpoints.posts }}</code></dd>
+        <dt>Estado por defecto</dt><dd>{{ fila.status_defecto }}</dd>
+        <dt>Telegram</dt><dd>{% for tid, nombre in fila.telegram.items() %}{{ nombre }} · {% endfor %}</dd>
+        <dt>Avisos</dt><dd>{% if fila.notifica_a %}a {{ fila.notifica_a|join(', ') }} y al admin si falla{% else %}solo al admin{% endif %}</dd>
+      </dl>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Pausar / activar</h2></div>
+      <form method="post" action="/diarios/{{ fila.slug }}/activar">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="activo" value="{{ '0' if fila.activo else '1' }}">
+        <button class="btn" type="submit">{{ 'Pausar publicaciones' if fila.activo else 'Activar publicaciones' }}</button>
+      </form>
+      <p class="mini">Pausado, el diario queda en el panel pero no publica más hasta reactivarlo.</p>
+    </section>
+
+    <section class="card peligro">
+      <div class="card-head"><h2>Eliminar diario</h2></div>
+      <form method="post" action="/diarios/{{ fila.slug }}/eliminar">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="confirmar">Escribí <code>{{ fila.slug }}</code> para confirmar</label>
+        <input id="confirmar" name="confirmar" type="text" autocomplete="off" placeholder="{{ fila.slug }}">
+        <button class="btn danger" type="submit">Eliminar</button>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,126 @@
+{
+  "diarios": {
+    "latin_tinta": {
+      "owner": "Maty",
+      "tonos": [
+        "realista"
+      ],
+      "horarios": [],
+      "gestionado_por": "cron_host",
+      "notas_por_corrida": 1,
+      "orden_fuentes": [],
+      "created_at": ""
+    },
+    "palabras_red": {
+      "owner": "Maty",
+      "tonos": [
+        "realista"
+      ],
+      "horarios": [],
+      "gestionado_por": "cron_host",
+      "notas_por_corrida": 1,
+      "orden_fuentes": [],
+      "created_at": ""
+    },
+    "lavoz_portena": {
+      "owner": "Mama",
+      "tonos": [
+        "realista"
+      ],
+      "horarios": [],
+      "gestionado_por": "cron_host",
+      "notas_por_corrida": 1,
+      "orden_fuentes": [],
+      "created_at": ""
+    },
+    "informate_ciudad": {
+      "owner": "Mama",
+      "tonos": [
+        "realista"
+      ],
+      "horarios": [],
+      "gestionado_por": "cron_host",
+      "notas_por_corrida": 1,
+      "orden_fuentes": [],
+      "created_at": ""
+    },
+    "la_posta_diario": {
+      "owner": "Martincito",
+      "tonos": [
+        "realista"
+      ],
+      "horarios": [],
+      "gestionado_por": "cron_host",
+      "notas_por_corrida": 1,
+      "orden_fuentes": [],
+      "created_at": ""
+    },
+    "el_punto_noticias": {
+      "owner": "Nicole",
+      "tonos": [
+        "realista"
+      ],
+      "horarios": [],
+      "gestionado_por": "cron_host",
+      "notas_por_corrida": 1,
+      "orden_fuentes": [],
+      "created_at": ""
+    },
+    "diario_ciudad": {
+      "owner": "Hernan",
+      "tonos": [
+        "realista"
+      ],
+      "horarios": [],
+      "gestionado_por": "cron_host",
+      "notas_por_corrida": 1,
+      "orden_fuentes": [],
+      "created_at": ""
+    },
+    "agenda_ba": {
+      "owner": "Max",
+      "tonos": [
+        "realista"
+      ],
+      "horarios": [],
+      "gestionado_por": "cron_host",
+      "notas_por_corrida": 1,
+      "orden_fuentes": [],
+      "created_at": ""
+    },
+    "egos_noticias": {
+      "owner": "Hernan",
+      "tonos": [
+        "realista"
+      ],
+      "horarios": [],
+      "gestionado_por": "cron_host",
+      "notas_por_corrida": 1,
+      "orden_fuentes": [],
+      "created_at": ""
+    },
+    "pulsoporteno": {
+      "owner": "Maty",
+      "tonos": [
+        "realista"
+      ],
+      "horarios": [],
+      "gestionado_por": "cron_host",
+      "notas_por_corrida": 1,
+      "orden_fuentes": [],
+      "created_at": ""
+    },
+    "horizonteba": {
+      "owner": "Maty",
+      "tonos": [
+        "realista"
+      ],
+      "horarios": [],
+      "gestionado_por": "cron_host",
+      "notas_por_corrida": 1,
+      "orden_fuentes": [],
+      "created_at": ""
+    }
+  },
+  "ejecutados": {}
+}

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Tablero{% endblock %} · Notibot</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <a class="brand" href="/">
+      <span class="logo">n</span>
+      <span class="brand-txt">notibot<em>panel</em></span>
+    </a>
+    <nav class="nav">
+      <a href="/" class="{{ 'on' if seccion == 'tablero' else '' }}">Tablero</a>
+      <a href="/diarios/nuevo" class="{{ 'on' if seccion == 'nuevo' else '' }}">Agregar diario</a>
+    </nav>
+    <div class="side-foot">
+      <div class="sched {{ 'on' if scheduler_activo else 'off' }}">
+        <span class="dot"></span>
+        {{ 'Publicación automática activa' if scheduler_activo else 'Programador apagado' }}
+      </div>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="link" type="submit">Cerrar sesión</button>
+      </form>
+    </div>
+  </aside>
+
+  <main class="main">
+    {% block cuerpo %}{% endblock %}
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ingresar · Notibot</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+  <div class="login-card">
+    <span class="logo big">n</span>
+    <h1>Notibot <em>panel</em></h1>
+    <p class="sub">Tablero de diarios y publicación automática</p>
+
+    {% if err %}<div class="alerta err">{{ err }}</div>{% endif %}
+
+    <form method="post" action="/login" class="login-form">
+      <label for="password">Contraseña del panel</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+      <button class="btn primary full" type="submit">Ingresar</button>
+    </form>
+
+    <p class="mini centro">Se define con la variable de entorno <code>PANEL_PASSWORD</code>.</p>
+  </div>
+</body>
+</html>

@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block titulo %}Agregar diario{% endblock %}
+{% block cuerpo %}
+<header class="top">
+  <div>
+    <a class="volver" href="/">← Tablero</a>
+    <h1>Agregar diario</h1>
+    <p class="sub">Ponés el dominio y el usuario de WordPress: el bot queda publicando solo.</p>
+  </div>
+</header>
+
+{% if ok %}<div class="alerta ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alerta err">{{ err }}</div>{% endif %}
+{% if preparacion and preparacion.pasos %}
+<div class="alerta {{ 'ok' if preparacion.ok else 'err' }}">
+  <strong>Preparación del WordPress:</strong>
+  <ul class="pasos">
+    {% for p in preparacion.pasos %}<li>{{ '✓' if p.ok else '✗' }} {{ p.accion }}: {{ p.detalle }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if prueba and not prueba.ok %}
+<div class="alerta err">
+  <strong>Prueba de conexión: {{ prueba.estado }}.</strong> {{ prueba.mensaje }}
+</div>
+{% endif %}
+
+<form method="post" action="/diarios/nuevo" class="form-nuevo" id="form-alta">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+
+  <section class="card">
+    <div class="card-head"><h2>El sitio</h2><span class="hint">WordPress con el plugin JWT Authentication</span></div>
+    <div class="campos">
+      <div class="campo">
+        <label for="nombre">Nombre del diario</label>
+        <input id="nombre" name="nombre" type="text" required value="{{ valores.nombre or '' }}" placeholder="La Voz del Sur">
+      </div>
+      <div class="campo">
+        <label for="slug">Slug <span class="mini">(opcional, se arma solo)</span></label>
+        <input id="slug" name="slug" type="text" value="{{ valores.slug or '' }}" placeholder="lavozdelsur">
+      </div>
+      <div class="campo ancho">
+        <label for="base_url">Dominio del WordPress</label>
+        <input id="base_url" name="base_url" type="text" required value="{{ valores.base_url or '' }}" placeholder="midiario.com.ar">
+        <span class="mini">Sin barra final. Si está en el mismo servidor podés usar la URL interna.</span>
+      </div>
+      <div class="campo">
+        <label for="usuario">Usuario de WordPress</label>
+        <input id="usuario" name="usuario" type="text" required value="{{ valores.usuario or '' }}" autocomplete="off">
+      </div>
+      <div class="campo">
+        <label for="password">Contraseña de WordPress</label>
+        <input id="password" name="password" type="password" required autocomplete="new-password">
+        <span class="mini">Se guarda en <code>config/secrets.env</code> con permisos 600, nunca en diarios.json.</span>
+      </div>
+    </div>
+
+    <div class="probar">
+      <button class="btn" type="button" id="btn-probar">Probar conexión</button>
+      <div class="prueba-resultado" id="prueba-res"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Preparar el WordPress</h2><span class="hint">solo si el sitio vive en tu servidor</span></div>
+    <div class="campos">
+      <div class="campo ancho">
+        <label for="sitio_dir">Carpeta del sitio</label>
+        <input id="sitio_dir" name="sitio_dir" type="text" value="{{ valores.sitio_dir or '' }}" placeholder="/home/mlorenzo/docker/sitio3">
+        <span class="mini">Donde está el <code>wp-config.php</code>. El panel define la clave JWT, arregla el <code>.htaccess</code> y verifica el login solo.</span>
+      </div>
+      <div class="campo ancho">
+        <label class="chip-linea">
+          <input type="checkbox" name="preparar_wp" value="1" {{ 'checked' if valores.preparar_wp or not valores else '' }}>
+          <span>Preparar el WordPress automáticamente (clave JWT + .htaccess)</span>
+        </label>
+        <label class="chip-linea">
+          <input type="checkbox" name="instalar_plugin" value="1" {{ 'checked' if valores.instalar_plugin else '' }}>
+          <span>Instalar el plugin JWT si falta (repositorio oficial de WordPress)</span>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Quién lo maneja</h2></div>
+    <div class="campos">
+      <div class="campo">
+        <label for="dueno">Dueño del diario</label>
+        <input id="dueno" name="dueno" type="text" value="{{ valores.dueno or '' }}" placeholder="Nombre y apellido">
+      </div>
+      <div class="campo">
+        <label for="telegram_id">Chat ID de Telegram <span class="mini">(opcional)</span></label>
+        <input id="telegram_id" name="telegram_id" type="text" value="{{ valores.telegram_id or '' }}" placeholder="123456789">
+        <span class="mini">Le avisa por Telegram cada vez que se publica y le habilita el diario en el bot (el bot lo detecta solo, sin reiniciar).</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Automatización</h2><span class="hint">el programador del panel se encarga</span></div>
+    <div class="campos">
+      <div class="campo">
+        <label for="horarios">Horarios de publicación</label>
+        <input id="horarios" name="horarios" type="text" value="{{ valores.horarios or '08:00, 20:00' }}" placeholder="08:00, 20:00">
+        <span class="mini">Separados por coma, hora de Buenos Aires.</span>
+      </div>
+      <div class="campo">
+        <label for="notas_por_corrida">Notas por corrida</label>
+        <select id="notas_por_corrida" name="notas_por_corrida">
+          {% for n in [1, 2, 3] %}
+          <option value="{{ n }}" {{ 'selected' if (valores.notas_por_corrida or 1)|int == n else '' }}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="campo ancho">
+        <label>Tonos disponibles</label>
+        <div class="tonos">
+          {% for t in tonos %}
+          <label class="chip">
+            <input type="checkbox" name="tonos" value="{{ t }}" {{ 'checked' if (not valores.tonos and t == 'realista') or (valores.tonos and t in valores.tonos) else '' }}>
+            <span>{{ t }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="campo ancho">
+        <label class="chip-linea">
+          <input type="checkbox" name="borrador" value="1" {{ 'checked' if valores.borrador else '' }}>
+          <span>Publicar una nota de prueba como borrador al crear el diario</span>
+        </label>
+        <label class="chip-linea">
+          <input type="checkbox" name="forzar" value="1" {{ 'checked' if valores.forzar else '' }}>
+          <span>Crear igual si la prueba de conexión falla</span>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <div class="acciones-final">
+    <a class="btn ghost" href="/">Cancelar</a>
+    <button class="btn primary" type="submit">Crear diario y programar</button>
+  </div>
+</form>
+
+<script src="/static/nuevo.js" defer></script>
+{% endblock %}

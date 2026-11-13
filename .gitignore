@@ -1,0 +1,29 @@
+# .gitignore
+variables.env
+credentials.json
+config/secrets.env
+config/backups/
+token_jwt
+logs/
+__pycache__/
+*.pyc
+data/
+salidas_*.json
+imagenes/
+uploading/
+debug/
+.venv/
+
+# sesiones y secretos que no van al repo
+keys/
+.jwt_cache.json
+
+# estado y backups
+deploy/backup/
+deploy/*.tar.gz
+deploy/*.sha256
+
+# herramientas / basura de Windows
+.freebuff/
+.ruff_cache/
+*Zone.Identifier

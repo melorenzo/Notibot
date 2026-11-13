@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block titulo %}Tablero{% endblock %}
+{% block cuerpo %}
+<header class="top">
+  <div>
+    <h1>Tablero</h1>
+    <p class="sub">{{ datos.resumen.total }} diarios conectados · datos al {{ datos.resumen.capturado }}</p>
+  </div>
+  <a class="btn primary" href="/diarios/nuevo">+ Agregar diario</a>
+</header>
+
+{% if ok %}<div class="alerta ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alerta err">{{ err }}</div>{% endif %}
+
+<section class="kpis">
+  <div class="kpi">
+    <span class="kpi-label">Diarios activos</span>
+    <strong>{{ datos.resumen.activos }}<small>/{{ datos.resumen.total }}</small></strong>
+    <span class="kpi-foot">{{ datos.resumen.en_panel }} programados desde el panel</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Notas publicadas hoy</span>
+    <strong>{{ datos.resumen.notas_hoy }}</strong>
+    <span class="kpi-foot">{{ datos.resumen.notas_7d }} en los últimos 7 días</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Requieren atención</span>
+    <strong class="{{ 'warn' if datos.resumen.problemas else '' }}">{{ datos.resumen.problemas }}</strong>
+    <span class="kpi-foot">sin respuesta, pausados o sin credenciales</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Programador</span>
+    <strong class="chico">{{ 'Activo' if scheduler_activo else 'Apagado' }}</strong>
+    <span class="kpi-foot">{% if corridas.actual %}publicando {{ corridas.actual.slug }}{% elif corridas.cola %}{{ corridas.cola|length }} corrida(s) en cola{% elif scheduler_activo %}revisa los horarios cada 20 s{% else %}las notas no salen solas{% endif %}</span>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Diarios</h2>
+    <span class="hint">WordPress en vivo + historial del bot</span>
+  </div>
+  {% if datos.filas %}
+  <div class="tabla-wrap">
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>Diario</th>
+          <th>Dueño</th>
+          <th>Estado</th>
+          <th>Última carga</th>
+          <th>En WordPress</th>
+          <th>7 días</th>
+          <th>Horario</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in datos.filas %}
+        <tr>
+          <td>
+            <a class="fuerte" href="/diarios/{{ d.slug }}">{{ d.nombre }}</a>
+            <div class="mini">{{ d.host }}</div>
+          </td>
+          <td>{{ d.owner }}</td>
+          <td><span class="badge {{ d.salud }}" title="{{ d.wp_error or d.salud_txt }}">{{ d.salud_txt }}</span></td>
+          <td>
+            <div>{{ d.nb_ultima_hace }}</div>
+            <div class="mini">{{ d.nb_titulo|truncate(46) if d.nb_titulo else 'sin registros del bot' }}</div>
+          </td>
+          <td>
+            <div>{{ d.wp_posts if d.wp_posts is not none else '—' }} notas</div>
+            <div class="mini">{{ d.wp_ultimo_hace if d.wp_ok else 'no responde' }}</div>
+          </td>
+          <td class="num">{{ d.notas_7d }}</td>
+          <td>
+            <div>{{ d.horarios_txt }}</div>
+            <div class="mini">{{ d.modo }}{% if d.proxima_txt != '—' %} · próx. {{ d.proxima_txt }}{% endif %}</div>
+          </td>
+          <td class="acc"><a class="btn ghost" href="/diarios/{{ d.slug }}">Ver</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="vacio">Todavía no hay diarios. <a href="/diarios/nuevo">Agregá el primero</a>.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Últimas publicaciones</h2>
+    <span class="hint">registro de data/used_items.json</span>
+  </div>
+  {% if datos.recientes %}
+  <ul class="lista">
+    {% for r in datos.recientes %}
+    <li>
+      <div class="lista-txt">
+        <span class="fuerte">{{ r.titulo|truncate(80) }}</span>
+        <span class="mini">{{ r.diario }}{% if r.fuente %} · {{ r.fuente }}{% endif %}{% if r.post_id %} · ID {{ r.post_id }}{% endif %}</span>
+      </div>
+      <span class="mini ahora">{{ r.hace }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="vacio">Sin publicaciones registradas en esta instalación.</p>
+  {% endif %}
+</section>
+{% endblock %}
