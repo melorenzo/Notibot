@@ -1,5 +1,47 @@
 # Deploy en el server
 
+## Orden de ejecución (checklist)
+
+El orden importa: las credenciales y el servicio del compose tienen que existir
+**antes** del `--check`, y el panel no se levanta a mano nunca (con la imagen
+vieja de Python 3.9 no importa scrapling).
+
+```
+1. PANEL_* en app2-notibot-V2/variables.env (600)      → todavía no reinicia nada
+2. servicio notibot-panel en docker-compose.yml        → docker compose config -q
+3. traer el script desde GitHub (si el directorio vivo no lo tiene)
+4. bash deploy_github.sh                    (--check)  → valida, no toca producción
+   └─ si una fuente da 0 items: rm -rf app2-notibot-nuevo/data/scrapling y repetir
+5. bash deploy_github.sh --apply                       → swap + panel 200 + smoke test
+6. registro DNS A de panelnoti.fullware.com.ar         → dig +short
+7. nginx-panel.conf + nginx -t + reload                → curl http://panelnoti...
+8. certbot --nginx -d panelnoti.fullware.com.ar        → curl -sI https://... 200
+9. login en el navegador + una corrida de prueba desde el panel
+10. retirar del crontab del host los docker exec notibot-cron-*
+11. (postergado) rotar LT_PASS, PR_PASS, LVP_PASS, IC_PASS, PP_PASS, HB_PASS
+```
+
+Detalle de cada paso en las secciones de abajo.
+
+### Gotchas que cortan el deploy
+
+- El paso 2 va **antes** del `--check`: el script exige `PANEL_PASSWORD` en
+  `variables.env`, que copia desde producción.
+- El paso 1 va antes del paso 5, no antes del 4: los contenedores actuales no
+  leen `variables.env` hasta que se recrean, así que agregar las líneas no
+  afecta lo que está publicando.
+- Si `app2-notibot-nuevo/` quedó de una corrida anterior, tiene su propio
+  `variables.env` y el script **no** lo vuelve a copiar (avisa "ya estaba, lo
+  dejo"). Borralo o sincronizalo a mano para que tome `PANEL_PASSWORD`.
+- El `deploy/deploy_github.sh` que corre es el del directorio desde el que lo
+  invocás. Si el directorio vivo es viejo, cloná el repo aparte y corré ese:
+
+```bash
+cd /home/mlorenzo/docker
+git clone --branch main https://github.com/melorenzo/Notibot.git app2-notibot-deploy
+bash app2-notibot-deploy/deploy/deploy_github.sh
+```
+
 ## Camino rápido (GitHub, sin scp)
 
 Todo está en `deploy/deploy_github.sh`. Corre en el server y hace el clon, copia
