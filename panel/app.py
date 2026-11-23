@@ -2,7 +2,7 @@
 """
 Panel web del Notibot.
 
-    PANEL_PASSWORD=... uvicorn panel.app:app --host 127.0.0.1 --port 8090
+    PANEL_PASSWORD=... uvicorn panel.app:app --host 0.0.0.0 --port 8030
 
 Sin PANEL_PASSWORD el panel no permite ingresar. Variables opcionales:
   PANEL_SECRET=...         secreto extra para firmar la cookie de sesión

@@ -86,6 +86,11 @@ aviso "producción : $PROD_DIR"
 aviso "prueba     : $WORK_DIR"
 aviso "compose    : $COMPOSE_DIR"
 aviso "servicios  : $(servicios)"
+if compose config --services 2>/dev/null | grep -qx "notibot-panel"; then
+  aviso "panel      : notibot-panel -> http://127.0.0.1:8030"
+else
+  aviso "panel      : OJO, no hay servicio notibot-panel en el compose (ver DEPLOY.md)"
+fi
 
 # ─────────────────────────────────────────────── 1. traer el código ──
 msg "1. Código desde GitHub ($BRANCH)"
@@ -227,6 +232,14 @@ if ! compose up -d --force-recreate $(servicios); then
 fi
 sleep 8
 compose ps 2>/dev/null | grep -i notibot || true
+
+if compose config --services 2>/dev/null | grep -qx "notibot-panel"; then
+  CODIGO=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:8030/login 2>/dev/null) || CODIGO=000
+  case "$CODIGO" in
+    200) aviso "panel      : http://127.0.0.1:8030/login responde 200" ;;
+    *)   aviso "panel      : http://127.0.0.1:8030/login -> $CODIGO (revisá PANEL_PASSWORD y docker logs notibot-panel)" ;;
+  esac
+fi
 
 msg "7. Smoke test dentro del contenedor"
 if ! bash "$PROD_DIR/deploy/smoke_test.sh"; then

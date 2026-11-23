@@ -91,8 +91,8 @@ docker exec notibot-cron-a sh -c 'cd /app && bash deploy/smoke_test.sh'
 docker exec notibot-cron-a sh -c 'cd /app && SCRAPER_DEBUG=1 python scraping/scraper_ba_static.py'
 docker exec notibot-cron-a sh -c 'tail -40 /app/logs/cron_a.log'
 
-# el panel
-docker exec app2-notibot sh -c 'curl -sf -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8000/login'
+# el panel (servicio notibot-panel, ver sección "Entrar al panel")
+docker exec notibot-panel sh -c 'curl -sf -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8030/login'
 ```
 
 ## 5. Pasar el directorio nuevo a su lugar
@@ -115,6 +115,90 @@ docker compose up -d --force-recreate
 
 Si hace falta volver a los scrapers con BeautifulSoup, las versiones previas
 están en `old_version/bs4_pre_scrapling/scraping/`.
+
+## Entrar al panel (`panelnoti.fullware.com.ar`)
+
+El panel es un servicio más del compose (no lo arranca `bot_telegram.py`).
+Escucha en **8030** y se publica **solo en el loopback del server**; el que sale
+a internet es nginx con el dominio y TLS.
+
+### 1. Servicio en el compose
+
+Agregalo a `/home/mlorenzo/docker/docker-compose.yml` copiando `image:`,
+`env_file:`, `volumes:` y `networks:` de un `notibot-cron-*`, y cambiando el
+comando:
+
+```yaml
+  notibot-panel:
+    image: app2-notibot:latest
+    container_name: notibot-panel
+    command: uvicorn panel.app:app --host 0.0.0.0 --port 8030
+    working_dir: /app
+    env_file: ./app2-notibot-V2/variables.env
+    volumes:
+      - ./app2-notibot-V2:/app
+    ports:
+      - "127.0.0.1:8030:8030"
+    restart: unless-stopped
+```
+
+- `127.0.0.1:8030:8030` publica el puerto **solo en loopback**, así nginx (que
+  corre en el host) llega por `http://127.0.0.1:8030` y nadie entra directo por
+  IP. Si tu nginx está en otro contenedor, sacá el prefijo `127.0.0.1:` y usá la
+  red de docker en el `proxy_pass`.
+- Se llama `notibot-panel` a propósito: `deploy_github.sh` recrea todos los
+  servicios cuyo nombre contenga "notibot", así que entra solo en el swap.
+- Tiene que usar la misma imagen que los cron: la vieja (Python 3.9) no importa
+  scrapling. No lo levantes a mano antes del `--apply`.
+
+### 2. Variables en `variables.env`
+
+```
+PANEL_PASSWORD=<una contraseña larga>
+PANEL_SECRET=<otra cadena larga y distinta>
+PANEL_TRUST_PROXY=1
+PANEL_COOKIE_SECURE=1
+```
+
+Sin `PANEL_PASSWORD` el panel abre pero rechaza todo login. El usuario es
+implícito: la pantalla de login pide **solo la contraseña**. La sesión dura 12 h.
+
+`PANEL_TRUST_PROXY=1` es obligatorio detrás de nginx: si no, todas las visitas
+llegan con la IP del proxy y los 6 intentos fallidos de cualquiera bloquean a
+todos. `PANEL_COOKIE_SECURE=1` fuerza la cookie `Secure` detrás de HTTPS.
+
+### 3. DNS y nginx
+
+1. Apuntá un `A` de `panelnoti.fullware.com.ar` a la IP del server (y `AAAA`
+   solo si el server tiene IPv6 pública; si no, no lo crees).
+2. Copiá la config del repo y activala:
+
+```bash
+sudo cp /home/mlorenzo/docker/app2-notibot-V2/deploy/nginx-panel.conf \
+        /etc/nginx/sites-available/notibot-panel
+sudo ln -sf /etc/nginx/sites-available/notibot-panel /etc/nginx/sites-enabled/notibot-panel
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+3. Emití el certificado (certbot agrega el bloque 443 y el redirect solo):
+
+```bash
+sudo certbot --nginx -d panelnoti.fullware.com.ar
+```
+
+### 4. Verificar
+
+```bash
+# desde tu máquina, con el panel ya recreado
+curl -sI https://panelnoti.fullware.com.ar/login | head -1     # 200
+```
+
+Después entrá, hacé login y confirmá en el navegador que la cookie
+`notibot_panel` figura como `Secure` y `HttpOnly`.
+
+El scheduler interno corre dentro de este servicio: cuando lo tengas andando,
+retirá las líneas del cron del host que hacen `docker exec notibot-cron-*`, si no
+las corridas se duplican.
 
 ## Scrapling
 
