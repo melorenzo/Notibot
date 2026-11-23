@@ -2,21 +2,25 @@
 
 ## Orden de ejecución (checklist)
 
-Situación del server: el directorio viejo quedó en `app2-notibot-v2-viejo` y el
-repo ya está clonado en `app2-notibot-V2`. En ese caso el script detecta el
-clon y corre **en sitio**: `git fetch/reset`, copia lo que falte del directorio
-viejo, construye y recrea los servicios. No hay clon aparte ni swap.
+Cómo está el server hoy: la carpeta que corre (`app2-notibot-V2`) quedó intacta
+y el repo se clonó en otra carpeta. No hay que renombrar nada: se valida en el
+clon y el `--apply` hace el swap, que deja la original completa en
+`app2-notibot-V2.bak-<fecha>` y pone el clon en su lugar. El cronjob del host no
+se rompe: los contenedores conservan nombre y la ruta que monta el compose sigue
+siendo `./app2-notibot-V2`.
 
 El orden importa: las credenciales y el servicio del compose tienen que existir
 **antes** del `--check`, y el panel no se levanta a mano nunca (con la imagen
 vieja de Python 3.9 no importa scrapling).
 
 ```
-1. PANEL_* en app2-notibot-V2/variables.env (600)      → todavía no reinicia nada
+NUEVO=/home/mlorenzo/docker/<carpeta-del-clon>
+
+1. $NUEVO/variables.env = copia del original + PANEL_* (600)
 2. servicio notibot-panel en docker-compose.yml        → docker compose config -q
-3. bash app2-notibot-V2/deploy/deploy_github.sh        (--check)  → valida, no recrea
-   └─ si una fuente da 0 items: rm -rf app2-notibot-V2/data/scrapling y repetir
-4. bash app2-notibot-V2/deploy/deploy_github.sh --apply → recrea + panel 200 + smoke
+3. WORK_DIR=$NUEVO bash $NUEVO/deploy/deploy_github.sh            (--check)
+   └─ si una fuente da 0 items: rm -rf $NUEVO/data/scrapling y repetir
+4. WORK_DIR=$NUEVO bash $NUEVO/deploy/deploy_github.sh --apply    → swap + panel 200 + smoke
 5. registro DNS A de panelnoti.fullware.com.ar         → dig +short
 6. nginx-panel.conf + nginx -t + reload                → curl http://panelnoti...
 7. certbot --nginx -d panelnoti.fullware.com.ar        → curl -sI https://... 200
@@ -29,39 +33,47 @@ Detalle de cada paso en las secciones de abajo.
 
 ### Gotchas que cortan el deploy
 
+- `WORK_DIR=$NUEVO` es lo único distinto del camino normal: manda al clon en
+  lugar de a `app2-notibot-nuevo`. `PROD_DIR` sigue siendo `app2-notibot-V2`, y
+  de ahí copia `variables.env`, `data/`, `logs/`, `token_jwt/`, `keys/` y
+  `config/`.
 - El paso 1 va antes del 3: tanto el `--check` como el `--apply` leen
   `variables.env` del directorio de trabajo y fallan si no está
-  `PANEL_PASSWORD`.
-- El paso 1 va antes del 4, no antes del 3: los contenedores actuales no leen
-  `variables.env` hasta que se recrean, así que agregar las líneas no afecta lo
-  que está publicando.
-- Si el clon nuevo ya tiene `variables.env`, el script lo deja (avisa "ya
-  estaba, lo dejo"): agregale ahí las `PANEL_*`.
-- El estado se copia desde `app2-notibot-v2-viejo`. Si el directorio viejo tiene
-  otro nombre: `OLD_DIR=/home/mlorenzo/docker/mi-viejo bash deploy/deploy_github.sh`.
-- El `git reset` del `--check` no toca los contenedores que publican: quedaron
-  montados sobre el directorio renombrado, no sobre el clon nuevo.
-- El `--apply` anota el commit anterior en `/home/mlorenzo/docker/.notibot-prev-sha`;
-  `--rollback` hace `git reset` a ese commit, reconstruye y recrea.
-- Si el directorio de producción **no** es un clon (no tiene `.git`), el script
-  cae al modo viejo: clona en `app2-notibot-nuevo` y hace el swap con backup.
+  `PANEL_PASSWORD`. Si el clon ya tiene `variables.env`, el script lo deja (avisa
+  "ya estaba, lo dejo"): cargale ahí las `PANEL_*`.
+- El paso 1 no afecta lo que publica: los contenedores no releen `variables.env`
+  hasta que se recrean, y eso pasa recién en el `--apply`.
+- `data/used_items.json` viaja con el `data/`: si el clon arranca sin él, el bot
+  vuelve a publicar notas que ya salieron.
+- El swap mueve la original a `app2-notibot-V2.bak-<fecha>` y el clon a
+  `app2-notibot-V2`; no toca nombres de contenedores ni la ruta del compose, así
+  que el cronjob sigue apuntando a lo mismo.
+- Rollback: `bash /home/mlorenzo/docker/app2-notibot-V2/deploy/deploy_github.sh --rollback`.
+- Una vez hecho el swap, el clon vive en `app2-notibot-V2` y las próximas
+  corridas no necesitan `WORK_DIR`: el script ve el `.git` y actualiza en sitio.
+- Si preferís clonar directamente sobre `app2-notibot-V2` (moviendo la original
+  antes), el script también detecta ese caso y no hace swap.
 
 ## Camino rápido (GitHub, sin scp)
 
-Todo está en `deploy/deploy_github.sh`. Hay dos modos según cómo esté el
+Todo está en `deploy/deploy_github.sh`. Hay tres modos según cómo esté el
 directorio de producción:
 
-- **en sitio** (el caso actual): `app2-notibot-V2` ya es un clon → actualiza con
-  git, copia el estado faltante desde `app2-notibot-v2-viejo` y recrea los
-  servicios. Sin backup de directorios: el rollback es `git reset`.
-- **clon aparte**: si producción no es git, clona en `app2-notibot-nuevo` y hace
-  el swap con backup y rollback automático.
+- **clon al lado** (el caso actual): el repo está en otra carpeta y
+  `app2-notibot-V2` sigue intacta. Se corre con `WORK_DIR=<clon>`: valida en el
+  clon y el `--apply` hace el swap con backup de la original.
+- **en sitio**: `app2-notibot-V2` mismo es el clon → actualiza con git y recrea,
+  sin swap; el rollback es `git reset` al commit anterior.
+- **clon automático**: si no hay clon ni se pasa `WORK_DIR`, clona en
+  `app2-notibot-nuevo` y hace el swap.
 
 ```bash
 cd /home/mlorenzo/docker
-bash app2-notibot-V2/deploy/deploy_github.sh             # valida, no recrea nada
-bash app2-notibot-V2/deploy/deploy_github.sh --apply     # pasa a producción
-bash app2-notibot-V2/deploy/deploy_github.sh --rollback  # vuelve al commit anterior
+NUEVO=/home/mlorenzo/docker/<carpeta-del-clon>
+
+WORK_DIR=$NUEVO bash $NUEVO/deploy/deploy_github.sh             # valida, no recrea nada
+WORK_DIR=$NUEVO bash $NUEVO/deploy/deploy_github.sh --apply     # swap + recrea
+bash app2-notibot-V2/deploy/deploy_github.sh --rollback         # vuelve al backup/commit anterior
 ```
 
 El modo `--check` (default) trae el código, copia `variables.env`, `data/`,
