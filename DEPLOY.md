@@ -2,57 +2,50 @@
 
 ## Orden de ejecución (checklist)
 
-Cómo está el server hoy: la carpeta que corre (`app2-notibot-V2`) quedó intacta
-y el repo se clonó en otra carpeta. No hay que renombrar nada: se valida en el
-clon y el `--apply` hace el swap, que deja la original completa en
-`app2-notibot-V2.bak-<fecha>` y pone el clon en su lugar. El cronjob del host no
-se rompe: los contenedores conservan nombre y la ruta que monta el compose sigue
-siendo `./app2-notibot-V2`.
-
-El orden importa: las credenciales y el servicio del compose tienen que existir
-**antes** del `--check`, y el panel no se levanta a mano nunca (con la imagen
-vieja de Python 3.9 no importa scrapling).
+`app2-notibot-V2` **es** el clon del repo y es la carpeta que corre. El script
+actualiza con git **en sitio**: no clona aparte, no hace swap y no toca el
+cronjob (los contenedores mantienen nombre y la ruta del compose). Además
+completa las `PANEL_*` que falten y levanta el panel en `127.0.0.1:8030`.
 
 ```
-NUEVO=/home/mlorenzo/docker/<carpeta-del-clon>
+cd /home/mlorenzo/docker/app2-notibot-V2
 
-1. $NUEVO/variables.env = copia del original + PANEL_* (600)
-2. servicio notibot-panel en docker-compose.yml        → docker compose config -q
-3. WORK_DIR=$NUEVO bash $NUEVO/deploy/deploy_github.sh            (--check)
-   └─ si una fuente da 0 items: rm -rf $NUEVO/data/scrapling y repetir
-4. WORK_DIR=$NUEVO bash $NUEVO/deploy/deploy_github.sh --apply    → swap + panel 200 + smoke
-5. registro DNS A de panelnoti.fullware.com.ar         → dig +short
-6. nginx-panel.conf + nginx -t + reload                → curl http://panelnoti...
-7. certbot --nginx -d panelnoti.fullware.com.ar        → curl -sI https://... 200
-8. login en el navegador + una corrida de prueba desde el panel
-9. retirar del crontab del host los docker exec notibot-cron-*
-10. (postergado) rotar LT_PASS, PR_PASS, LVP_PASS, IC_PASS, PP_PASS, HB_PASS
+1. bash deploy/deploy_github.sh --diff     (opcional) qué pisa el reset
+2. bash deploy/deploy_github.sh            (--check) valida, no recrea nada
+   └─ si una fuente da 0 items: rm -rf data/scrapling y repetir
+3. bash deploy/deploy_github.sh --apply    recrea + panel 200 + smoke test
+4. dig +short panelnoti.fullware.com.ar    registro DNS A a la IP del server
+5. nginx-panel.conf + nginx -t + reload    curl http://panelnoti.../login
+6. certbot --nginx -d panelnoti.fullware.com.ar   curl -sI https://... 200
+7. login en el navegador + una corrida de prueba desde el panel
+8. retirar del crontab del host los docker exec notibot-cron-*
+9. (postergado) rotar LT_PASS, PR_PASS, LVP_PASS, IC_PASS, PP_PASS, HB_PASS
 ```
 
 Detalle de cada paso en las secciones de abajo.
 
 ### Gotchas que cortan el deploy
 
-- `WORK_DIR=$NUEVO` es lo único distinto del camino normal: manda al clon en
-  lugar de a `app2-notibot-nuevo`. `PROD_DIR` sigue siendo `app2-notibot-V2`, y
-  de ahí copia `variables.env`, `data/`, `logs/`, `token_jwt/`, `keys/` y
-  `config/`.
-- El paso 1 va antes del 3: tanto el `--check` como el `--apply` leen
-  `variables.env` del directorio de trabajo y fallan si no está
-  `PANEL_PASSWORD`. Si el clon ya tiene `variables.env`, el script lo deja (avisa
-  "ya estaba, lo dejo"): cargale ahí las `PANEL_*`.
-- El paso 1 no afecta lo que publica: los contenedores no releen `variables.env`
-  hasta que se recrean, y eso pasa recién en el `--apply`.
-- `data/used_items.json` viaja con el `data/`: si el clon arranca sin él, el bot
-  vuelve a publicar notas que ya salieron.
-- El swap mueve la original a `app2-notibot-V2.bak-<fecha>` y el clon a
-  `app2-notibot-V2`; no toca nombres de contenedores ni la ruta del compose, así
-  que el cronjob sigue apuntando a lo mismo.
-- Rollback: `bash /home/mlorenzo/docker/app2-notibot-V2/deploy/deploy_github.sh --rollback`.
-- Una vez hecho el swap, el clon vive en `app2-notibot-V2` y las próximas
-  corridas no necesitan `WORK_DIR`: el script ve el `.git` y actualiza en sitio.
-- Si preferís clonar directamente sobre `app2-notibot-V2` (moviendo la original
-  antes), el script también detecta ese caso y no hace swap.
+- `--check` y `--apply` hacen `git reset --hard origin/main` sobre la carpeta
+  viva: los archivos versionados con cambios locales se descartan (antes el
+  script guarda `../notibot-antes-<fecha>.status` y `.patch`), y los que no están
+  en el repo (`variables.env`, `data/`, `logs/`, `token_jwt/`, `keys/`,
+  `config/`) quedan intactos.
+- Si falta `variables.env`, el script corta: copiala de un respaldo antes.
+- `data/used_items.json` no está en el repo; si falta, el bot vuelve a publicar
+  notas que ya salieron.
+- El script agrega `PANEL_SECRET`, `PANEL_TRUST_PROXY=1` y `PANEL_COOKIE_SECURE=1`
+  si no están, y si falta `PANEL_PASSWORD` la genera y la imprime una vez (queda
+  en `variables.env`).
+- `PANEL_COOKIE_SECURE=1` implica login **solo por HTTPS**. Para probar antes de
+  certbot por `http://IP:8030`, ponelo en 0 y recreá el panel.
+- El panel no necesita declararse en el compose: el script lo levanta con
+  `docker run --name notibot-panel ... -p 127.0.0.1:8030:8030`. Si agregás el
+  servicio al compose, usa ese y no duplica el contenedor.
+- Rollback: `bash deploy/deploy_github.sh --rollback` — git reset al commit
+  anterior, rebuild y recreación.
+- Si algún día el directorio de producción no es un clon, el script cae al modo
+  clon aparte (`app2-notibot-nuevo`) con swap y backup.
 
 ## Camino rápido (GitHub, sin scp)
 
@@ -62,27 +55,27 @@ directorio de producción:
 - **clon al lado** (el caso actual): el repo está en otra carpeta y
   `app2-notibot-V2` sigue intacta. Se corre con `WORK_DIR=<clon>`: valida en el
   clon y el `--apply` hace el swap con backup de la original.
-- **en sitio**: `app2-notibot-V2` mismo es el clon → actualiza con git y recrea,
-  sin swap; el rollback es `git reset` al commit anterior.
-- **clon automático**: si no hay clon ni se pasa `WORK_DIR`, clona en
-  `app2-notibot-nuevo` y hace el swap.
+- **en sitio** (el caso actual): `app2-notibot-V2` es el clon → actualiza con
+  git y recrea, sin swap; el rollback es `git reset` al commit anterior.
+- **clon aparte**: si producción no es un clon, clona en `app2-notibot-nuevo`
+  (o en `WORK_DIR`) y hace el swap con backup.
 
 ```bash
-cd /home/mlorenzo/docker
-NUEVO=/home/mlorenzo/docker/<carpeta-del-clon>
+cd /home/mlorenzo/docker/app2-notibot-V2
 
-WORK_DIR=$NUEVO bash $NUEVO/deploy/deploy_github.sh             # valida, no recrea nada
-WORK_DIR=$NUEVO bash $NUEVO/deploy/deploy_github.sh --apply     # swap + recrea
-bash app2-notibot-V2/deploy/deploy_github.sh --rollback         # vuelve al backup/commit anterior
+bash deploy/deploy_github.sh --diff       # qué descarta el reset (opcional)
+bash deploy/deploy_github.sh              # valida, no recrea nada
+bash deploy/deploy_github.sh --apply      # recrea + panel + smoke test
+bash deploy/deploy_github.sh --rollback   # vuelve al commit anterior
 ```
 
-El modo `--check` (default) trae el código, copia `variables.env`, `data/`,
-`logs/`, `token_jwt/`, `keys/` y `config/` de lo que falte, construye la imagen y
-corre `ba_static`, `ba_noticias`, `lanacion` e `infobae` contando items en
-contenedores descartables. No recrea los servicios que están publicando.
+El modo `--check` (default) trae el código, completa las `PANEL_*` que falten,
+construye la imagen y corre `ba_static`, `ba_noticias`, `lanacion` e `infobae`
+contando items en contenedores descartables. No recrea los servicios que están
+publicando.
 
 `equipoba` no se prueba ahí porque necesita el contenedor de Selenium; se valida
-con `deploy/smoke_test.sh` después del swap.
+con `deploy/smoke_test.sh` en el `--apply`.
 
 ## Procedimiento manual
 
@@ -181,15 +174,21 @@ están en `old_version/bs4_pre_scrapling/scraping/`.
 
 ## Entrar al panel (`panelnoti.fullware.com.ar`)
 
-El panel es un servicio más del compose (no lo arranca `bot_telegram.py`).
-Escucha en **8030** y se publica **solo en el loopback del server**; el que sale
-a internet es nginx con el dominio y TLS.
+El panel lo levanta `deploy_github.sh` en el `--apply` con `docker run` (no lo
+arranca `bot_telegram.py`). Escucha en **8030** y se publica **solo en el
+loopback del server**; el que sale a internet es nginx con el dominio y TLS.
 
-### 1. Servicio en el compose
+```bash
+docker ps --filter name=notibot-panel
+docker logs --tail 30 notibot-panel
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8030/login
+```
 
-Agregalo a `/home/mlorenzo/docker/docker-compose.yml` copiando `image:`,
-`env_file:`, `volumes:` y `networks:` de un `notibot-cron-*`, y cambiando el
-comando:
+### 1. Servicio en el compose (opcional)
+
+Si preferís manejarlo desde el compose en vez de `docker run`, agregalo copiando
+`image:`, `env_file:`, `volumes:` y `networks:` de un `notibot-cron-*`, y
+cambiando el comando:
 
 ```yaml
   notibot-panel:
@@ -223,8 +222,9 @@ PANEL_TRUST_PROXY=1
 PANEL_COOKIE_SECURE=1
 ```
 
-Sin `PANEL_PASSWORD` el panel abre pero rechaza todo login. El usuario es
-implícito: la pantalla de login pide **solo la contraseña**. La sesión dura 12 h.
+El script completa estas líneas solo si faltan (a `PANEL_PASSWORD` la genera y
+la imprime una vez). El usuario es implícito: la pantalla de login pide **solo
+la contraseña**. La sesión dura 12 h.
 
 `PANEL_TRUST_PROXY=1` es obligatorio detrás de nginx: si no, todas las visitas
 llegan con la IP del proxy y los 6 intentos fallidos de cualquiera bloquean a

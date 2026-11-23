@@ -4,19 +4,27 @@
 # Corre DENTRO del server. No hace falta scp ni copiar archivos a mano.
 #
 #   bash deploy/deploy_github.sh              # validar (no toca producción)
+#   bash deploy/deploy_github.sh --diff       # ver qué cambia el reset con git
 #   bash deploy/deploy_github.sh --apply      # pasar a producción
 #   bash deploy/deploy_github.sh --rollback   # volver al backup más reciente
 #
+# Dos escenarios:
+#   - en sitio: app2-notibot-V2 ya es el clon git. Se actualiza con git, sin
+#     swap; el rollback es git reset al commit anterior.
+#   - clon aparte: si producción no es git, clona en app2-notibot-nuevo y hace
+#     el swap con backup.
+#
 # Qué hace en modo --check:
-#   1. clona (o actualiza) el repo en app2-notibot-nuevo
+#   1. trae el código (git o clone)
 #   2. copia el estado del directorio actual: variables.env, data/, logs/,
-#      token_jwt/, keys/ y config/  (nunca al revés, nunca borra)
+#      token_jwt/, keys/ y config/  (nunca al revés, nunca borra) y completa
+#      las PANEL_* que falten
 #   3. construye la imagen nueva y verifica Python 3.12 + scrapling
 #   4. chequea variables requeridas
 #   5. corre las fuentes HTML y cuenta items
 #
-# En modo --apply, si todo lo anterior pasó, hace el swap con backup y
-# recrea solamente los contenedores del notibot.
+# En modo --apply, si todo lo anterior pasó, recrea los contenedores del
+# notibot, deja el panel escuchando en 127.0.0.1:8030 y corre el smoke test.
 set -uo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/melorenzo/Notibot.git}"
@@ -25,7 +33,6 @@ COMPOSE_DIR="${COMPOSE_DIR:-/home/mlorenzo/docker}"
 PROD_DIR="${PROD_DIR:-$COMPOSE_DIR/app2-notibot-V2}"
 WORK_DIR="${WORK_DIR:-$COMPOSE_DIR/app2-notibot-nuevo}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-OLD_DIR="${OLD_DIR:-$COMPOSE_DIR/app2-notibot-v2-viejo}"
 PREV=""
 
 MODO="check"
@@ -33,8 +40,9 @@ case "${1:-}" in
   ""|--check) MODO="check" ;;
   --apply)    MODO="apply" ;;
   --rollback) MODO="rollback" ;;
-  -h|--help)  sed -n '2,20p' "$0"; exit 0 ;;
-  *) echo "Uso: $0 [--check|--apply|--rollback]"; exit 2 ;;
+  --diff)     MODO="diff" ;;
+  -h|--help)  sed -n '2,30p' "$0"; exit 0 ;;
+  *) echo "Uso: $0 [--check|--diff|--apply|--rollback]"; exit 2 ;;
 esac
 
 msg()    { printf '\n==> %s\n' "$*"; }
@@ -52,6 +60,60 @@ servicios() {
 
 imagen_compose() {
   compose config --images 2>/dev/null | grep -i notibot | head -1 || true
+}
+
+aleatorio() { # $1 = bytes
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex "${1:-16}"
+  else
+    head -c "${1:-16}" /dev/urandom | od -An -tx1 | tr -d ' \n'
+  fi
+}
+
+asegurar_panel_env() { # $1 = variables.env
+  local f="$1" agregue=0
+  [ -f "$f" ] || return 1
+  grep -q '^PANEL_SECRET=' "$f" || {
+    printf 'PANEL_SECRET=%s\n' "$(aleatorio 32)" >> "$f"; aviso "PANEL_SECRET: generada"; agregue=1; }
+  if ! grep -q '^PANEL_PASSWORD=' "$f"; then
+    PANEL_GENERADA=$(aleatorio 9)
+    printf 'PANEL_PASSWORD=%s\n' "$PANEL_GENERADA" >> "$f"
+    aviso "PANEL_PASSWORD: generada -> $PANEL_GENERADA (login del panel)"
+    agregue=1
+  fi
+  grep -q '^PANEL_TRUST_PROXY=' "$f"  || { echo 'PANEL_TRUST_PROXY=1'  >> "$f"; agregue=1; }
+  grep -q '^PANEL_COOKIE_SECURE=' "$f" || { echo 'PANEL_COOKIE_SECURE=1' >> "$f"; agregue=1; }
+  [ "$agregue" = 1 ] && chmod 600 "$f" 2>/dev/null || true
+  return 0
+}
+
+recrear_panel() { # $1 = imagen, $2 = directorio del proyecto
+  local img="$1" dir="$2"
+  docker rm -f notibot-panel >/dev/null 2>&1 || true
+  docker run -d --name notibot-panel --restart unless-stopped \
+    --env-file "$dir/variables.env" -v "$dir:/app" -w /app \
+    -p 127.0.0.1:8030:8030 "$img" \
+    uvicorn panel.app:app --host 0.0.0.0 --port 8030 >/dev/null 2>&1 || {
+      aviso "no pude levantar notibot-panel (docker logs notibot-panel)"
+      return 1
+    }
+  return 0
+}
+
+codigo_panel() {
+  local c
+  c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+        http://127.0.0.1:8030/login 2>/dev/null) || true
+  [ -n "$c" ] || c=000
+  echo "$c"
+}
+
+info_panel() {
+  local c; c=$(codigo_panel)
+  case "$c" in
+    200) aviso "panel      : http://127.0.0.1:8030/login responde 200" ;;
+    *)   aviso "panel      : http://127.0.0.1:8030/login -> $c (docker logs notibot-panel)" ;;
+  esac
 }
 
 copiar_dir() { # origen con barra final, destino con barra final
@@ -77,6 +139,31 @@ if [ -d "$PROD_DIR/.git" ]; then
   DIR_TRABAJO="$PROD_DIR"
 fi
 
+# ─────────────────────────────────────────────────────────────── diff ──
+# Qué se llevaría puesto el git reset: archivos versionados con cambios
+# locales (se descartan) y archivos que no están en el repo (sobreviven).
+if [ "$MODO" = "diff" ]; then
+  [ "$EN_SITIO" = 1 ] || fallar "$PROD_DIR no es un clon git; no hay nada que diferenciar"
+  ENCABEZADO=$(git -C "$PROD_DIR" rev-parse --short HEAD)
+  MODIFICADOS=$(git -C "$PROD_DIR" status --porcelain | grep -v '^??' || true)
+  SUELTOS=$(git -C "$PROD_DIR" status --porcelain | grep '^??' || true)
+  msg "Diff contra HEAD ($ENCABEZADO)"
+  if [ -n "$MODIFICADOS" ]; then
+    aviso "versionados con cambios locales (los descarta el reset):"
+    printf '%s\n' "$MODIFICADOS" | sed 's/^/      /'
+  else
+    aviso "sin cambios en archivos versionados"
+  fi
+  if [ -n "$SUELTOS" ]; then
+    aviso "fuera del repo (no los toca):"
+    printf '%s\n' "$SUELTOS" | sed 's/^/      /'
+  fi
+  PATCH="$COMPOSE_DIR/notibot-antes-$STAMP.patch"
+  git -C "$PROD_DIR" diff > "$PATCH" 2>/dev/null || true
+  aviso "diff completo: $PATCH ($(wc -l < "$PATCH" 2>/dev/null || echo 0) líneas)"
+  exit 0
+fi
+
 # ─────────────────────────────────────────────────────────── rollback ──
 if [ "$MODO" = "rollback" ]; then
   if [ "$EN_SITIO" = 1 ] && [ -f "$COMPOSE_DIR/.notibot-prev-sha" ]; then
@@ -87,6 +174,7 @@ if [ "$MODO" = "rollback" ]; then
     [ -n "$IMG_COMPOSE" ] || IMG_COMPOSE="app2-notibot:latest"
     docker build -q -t "$IMG_COMPOSE" "$PROD_DIR" >/dev/null || fallar "falló el docker build del rollback"
     compose up -d --force-recreate $(servicios) || fallar "no pude recrear los contenedores"
+    compose config --services 2>/dev/null | grep -qx "notibot-panel" || recrear_panel "$IMG_COMPOSE" "$PROD_DIR" || true
     msg "Rollback listo: $(git -C "$PROD_DIR" rev-parse --short HEAD)"
     exit 0
   fi
@@ -109,25 +197,33 @@ compose version >/dev/null 2>&1 || fallar "no encuentro docker compose (plugin)"
 [ -d "$COMPOSE_DIR" ] || fallar "no existe $COMPOSE_DIR"
 aviso "producción : $PROD_DIR"
 if [ "$EN_SITIO" = 1 ]; then
-  aviso "modo       : en sitio (repo clonado, sin swap)"
-  [ -d "$OLD_DIR" ] && aviso "estado     : de $(basename "$OLD_DIR") (lo que falte)" \
-                     || aviso "estado     : OJO, no existe $OLD_DIR (pasá OLD_DIR=... o copiá variables.env a mano)"
-  aviso "prueba     : $DIR_TRABAJO (el mismo directorio)"
+  aviso "modo       : en sitio (el repo ya está en producción, sin swap)"
+  aviso "estado     : se queda donde está (variables.env, data/, config/)"
 else
   aviso "prueba     : $WORK_DIR"
 fi
 aviso "compose    : $COMPOSE_DIR"
 aviso "servicios  : $(servicios)"
 if compose config --services 2>/dev/null | grep -qx "notibot-panel"; then
-  aviso "panel      : notibot-panel -> http://127.0.0.1:8030"
+  aviso "panel      : notibot-panel -> http://127.0.0.1:8030 (servicio del compose)"
 else
-  aviso "panel      : OJO, no hay servicio notibot-panel en el compose (ver DEPLOY.md)"
+  aviso "panel      : no está en el compose; lo levanto con docker run en 127.0.0.1:8030"
 fi
 
 # ─────────────────────────────────────────────── 1. traer el código ──
 msg "1. Código desde GitHub ($BRANCH)"
 if [ "$EN_SITIO" = 1 ]; then
   PREV=$(git -C "$PROD_DIR" rev-parse HEAD)
+  # guardar lo que el reset pueda pisar, antes de tocar nada
+  RESPALDO="$COMPOSE_DIR/notibot-antes-$STAMP"
+  git -C "$PROD_DIR" status --porcelain > "$RESPALDO.status" 2>/dev/null || true
+  git -C "$PROD_DIR" diff > "$RESPALDO.patch" 2>/dev/null || true
+  N_MOD=$(grep -c -v '^??' "$RESPALDO.status" 2>/dev/null || true)
+  [ -n "$N_MOD" ] || N_MOD=0
+  if [ "$N_MOD" -gt 0 ] 2>/dev/null; then
+    aviso "OJO: $N_MOD archivo(s) versionados con cambios locales; el reset los descarta"
+  fi
+  aviso "estado previo guardado en $(basename "$RESPALDO").{status,patch}"
   git -C "$PROD_DIR" fetch --quiet origin "$BRANCH" || fallar "no pude hacer fetch"
   git -C "$PROD_DIR" checkout --quiet "$BRANCH" || fallar "no pude cambiar a $BRANCH"
   git -C "$PROD_DIR" reset --hard --quiet "origin/$BRANCH" || fallar "no pude actualizar el código"
@@ -147,25 +243,31 @@ aviso "commit: $SHA"
 
 # ───────────────────────────────────────── 2. estado y credenciales ──
 msg "2. Estado del directorio actual"
-ORIGEN="$PROD_DIR"
-[ "$EN_SITIO" = 1 ] && ORIGEN="$OLD_DIR"
-if [ -f "$DIR_TRABAJO/variables.env" ]; then
-  aviso "variables.env: ya estaba, lo dejo (si le falta PANEL_PASSWORD, agregala)"
+if [ "$EN_SITIO" = 1 ]; then
+  # el estado ya vive acá: nunca se copia ni se pisa
+  [ -f "$PROD_DIR/variables.env" ] || fallar "falta $PROD_DIR/variables.env: copiala del directorio viejo antes de seguir"
+  [ -f "$PROD_DIR/data/used_items.json" ] || aviso "OJO: no veo data/used_items.json (sin historial se republica todo)"
+  aviso "estado: queda como está (variables.env, data/, logs/, token_jwt/, keys/, config/)"
 else
-  [ -f "$ORIGEN/variables.env" ] || fallar "no encuentro variables.env en $ORIGEN"
-  cp "$ORIGEN/variables.env" "$DIR_TRABAJO/variables.env" || fallar "no pude copiar variables.env"
-  chmod 600 "$DIR_TRABAJO/variables.env"
-  aviso "variables.env: copiado de $(basename "$ORIGEN") (600)"
+  if [ -f "$WORK_DIR/variables.env" ]; then
+    aviso "variables.env: ya estaba en el clon, lo dejo"
+  else
+    [ -f "$PROD_DIR/variables.env" ] || fallar "no encuentro $PROD_DIR/variables.env"
+    cp "$PROD_DIR/variables.env" "$WORK_DIR/variables.env" || fallar "no pude copiar variables.env"
+    aviso "variables.env: copiado de producción"
+  fi
+  for d in data logs token_jwt keys; do
+    copiar_dir "$PROD_DIR/$d/" "$WORK_DIR/$d/"
+    [ -d "$PROD_DIR/$d" ] && aviso "$d/: copiado"
+  done
+  copiar_dir "$PROD_DIR/config/" "$WORK_DIR/config/"
+  aviso "config/: copiado (diarios.json y estado del panel del server mandan)"
+  # no arrastrar salidas de pruebas viejas
+  rm -f "$WORK_DIR"/salidas_*.json 2>/dev/null || true
 fi
-for d in data logs token_jwt keys; do
-  copiar_dir "$ORIGEN/$d/" "$DIR_TRABAJO/$d/"
-  [ -d "$ORIGEN/$d" ] && aviso "$d/: copiado"
-done
-copiar_dir "$ORIGEN/config/" "$DIR_TRABAJO/config/"
-aviso "config/: copiado de $(basename "$ORIGEN") (diarios.json y estado del panel del server mandan)"
+chmod 600 "$DIR_TRABAJO/variables.env" 2>/dev/null || true
 if [ -f "$DIR_TRABAJO/config/secrets.env" ]; then chmod 600 "$DIR_TRABAJO/config/secrets.env"; fi
-# no arrastrar salidas de pruebas viejas (en sitio son las de producción)
-if [ "$EN_SITIO" = 0 ]; then rm -f "$DIR_TRABAJO"/salidas_*.json 2>/dev/null || true; fi
+asegurar_panel_env "$DIR_TRABAJO/variables.env" || aviso "OJO: no pude leer $DIR_TRABAJO/variables.env"
 
 # ───────────────────────────────────────────────────── 3. imagen ──
 msg "3. Imagen (Python 3.12 + scrapling)"
@@ -240,7 +342,7 @@ aviso "equipoba no corre acá (necesita el contenedor de Selenium); se valida co
 if [ "$MODO" = "check" ]; then
   msg "Validación terminada (no toqué producción)"
   aviso "Si las fuentes están OK:  bash $0 --apply"
-  aviso "Si el panel no abre, falta PANEL_PASSWORD en variables.env"
+  aviso "El panel se levanta en el --apply: http://127.0.0.1:8030/login"
   exit 0
 fi
 
@@ -288,11 +390,11 @@ sleep 8
 compose ps 2>/dev/null | grep -i notibot || true
 
 if compose config --services 2>/dev/null | grep -qx "notibot-panel"; then
-  CODIGO=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:8030/login 2>/dev/null) || CODIGO=000
-  case "$CODIGO" in
-    200) aviso "panel      : http://127.0.0.1:8030/login responde 200" ;;
-    *)   aviso "panel      : http://127.0.0.1:8030/login -> $CODIGO (revisá PANEL_PASSWORD y docker logs notibot-panel)" ;;
-  esac
+  info_panel
+elif recrear_panel "$IMG" "$PROD_DIR"; then
+  sleep 3
+  aviso "panel      : contenedor notibot-panel creado fuera del compose"
+  info_panel
 fi
 
 msg "7. Smoke test dentro del contenedor"
