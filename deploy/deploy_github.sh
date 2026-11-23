@@ -62,6 +62,29 @@ imagen_compose() {
   compose config --images 2>/dev/null | grep -i notibot | head -1 || true
 }
 
+# Nginx Proxy Manager corre como contenedor: no puede llegar a algo que escucha
+# solo en 127.0.0.1 del host. Si lo encuentro, el panel se suma a su red y el
+# proxy le pega por nombre (notibot-panel:8030), sin publicar nada al mundo.
+red_npm() {
+  local c redes red
+  if [ -n "${RED_NPM:-}" ]; then   # override a mano: RED_NPM=<red> bash ...
+    printf '%s\n' "$RED_NPM"
+    return 0
+  fi
+  c=$(docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null \
+      | grep -i -E 'nginx-proxy-manager|nginxproxymanager|jc21/nginx-proxy' \
+      | awk 'NR==1 {print $1}')
+  [ -n "$c" ] || return 1
+  redes=$(docker inspect "$c" \
+    --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' 2>/dev/null \
+    | sed '/^$/d')
+  [ -n "$redes" ] || return 1
+  red=$(printf '%s\n' "$redes" | awk 'tolower($0) ~ /npm|proxy/ {print; exit}')
+  [ -n "$red" ] || red=$(printf '%s\n' "$redes" | awk 'NR==1 {print}')
+  case "$red" in ""|bridge|host|none) return 1 ;; esac   # sin DNS por nombre
+  printf '%s\n' "$red"
+}
+
 aleatorio() { # $1 = bytes
   if command -v openssl >/dev/null 2>&1; then
     openssl rand -hex "${1:-16}"
@@ -122,10 +145,11 @@ buscar_variables_env() { # $1 = destino
   return 1
 }
 
-recrear_panel() { # $1 = imagen, $2 = directorio del proyecto
-  local img="$1" dir="$2"
+recrear_panel() { # $1 = imagen, $2 = directorio del proyecto, $3 = red (opcional)
+  local img="$1" dir="$2" red="${3:-}" RED_ARG=""
+  [ -n "$red" ] && RED_ARG="--network $red"
   docker rm -f notibot-panel >/dev/null 2>&1 || true
-  docker run -d --name notibot-panel --restart unless-stopped \
+  docker run -d --name notibot-panel --restart unless-stopped $RED_ARG \
     --env-file "$dir/variables.env" -v "$dir:/app" -w /app \
     -p 127.0.0.1:8030:8030 "$img" \
     uvicorn panel.app:app --host 0.0.0.0 --port 8030 >/dev/null 2>&1 || {
@@ -209,7 +233,7 @@ if [ "$MODO" = "rollback" ]; then
     [ -n "$IMG_COMPOSE" ] || IMG_COMPOSE="app2-notibot:latest"
     docker build -q -t "$IMG_COMPOSE" "$PROD_DIR" >/dev/null || fallar "falló el docker build del rollback"
     compose up -d --force-recreate $(servicios) || fallar "no pude recrear los contenedores"
-    compose config --services 2>/dev/null | grep -qx "notibot-panel" || recrear_panel "$IMG_COMPOSE" "$PROD_DIR" || true
+    compose config --services 2>/dev/null | grep -qx "notibot-panel" || recrear_panel "$IMG_COMPOSE" "$PROD_DIR" "$(red_npm || true)" || true
     msg "Rollback listo: $(git -C "$PROD_DIR" rev-parse --short HEAD)"
     exit 0
   fi
@@ -243,6 +267,12 @@ if compose config --services 2>/dev/null | grep -qx "notibot-panel"; then
   aviso "panel      : notibot-panel -> http://127.0.0.1:8030 (servicio del compose)"
 else
   aviso "panel      : no está en el compose; lo levanto con docker run en 127.0.0.1:8030"
+fi
+RED_PANEL=$(red_npm || true)
+if [ -n "$RED_PANEL" ]; then
+  aviso "proxy      : Nginx Proxy Manager -> el panel se suma a la red $RED_PANEL (proxy a notibot-panel:8030)"
+else
+  aviso "proxy      : no veo Nginx Proxy Manager; el panel queda solo en 127.0.0.1:8030"
 fi
 
 # ─────────────────────────────────────────────── 1. traer el código ──
@@ -428,9 +458,14 @@ compose ps 2>/dev/null | grep -i notibot || true
 
 if compose config --services 2>/dev/null | grep -qx "notibot-panel"; then
   info_panel
-elif recrear_panel "$IMG" "$PROD_DIR"; then
+elif recrear_panel "$IMG" "$PROD_DIR" "$RED_PANEL"; then
   sleep 3
-  aviso "panel      : contenedor notibot-panel creado fuera del compose"
+  if [ -n "$RED_PANEL" ]; then
+    aviso "panel      : contenedor notibot-panel en la red $RED_PANEL"
+    aviso "proxy      : en NPM, Proxy Host -> panelnoti.fullware.com.ar -> notibot-panel:8030"
+  else
+    aviso "panel      : contenedor notibot-panel creado fuera del compose"
+  fi
   info_panel
 fi
 

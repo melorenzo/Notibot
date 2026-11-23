@@ -15,8 +15,8 @@ cd /home/mlorenzo/docker/app2-notibot-V2
    └─ si una fuente da 0 items: rm -rf data/scrapling y repetir
 3. bash deploy/deploy_github.sh --apply    recrea + panel 200 + smoke test
 4. dig +short panelnoti.fullware.com.ar    registro DNS A a la IP del server
-5. nginx-panel.conf + nginx -t + reload    curl http://panelnoti.../login
-6. certbot --nginx -d panelnoti.fullware.com.ar   curl -sI https://... 200
+5. NPM: Proxy Host panelnoti.fullware.com.ar -> notibot-panel:8030
+6. NPM: pestaña SSL -> Let's Encrypt + Force SSL   curl -sI https://... 200
 7. login en el navegador + una corrida de prueba desde el panel
 8. retirar del crontab del host los docker exec notibot-cron-*
 9. (postergado) rotar LT_PASS, PR_PASS, LVP_PASS, IC_PASS, PP_PASS, HB_PASS
@@ -42,8 +42,9 @@ Detalle de cada paso en las secciones de abajo.
 - El script agrega `PANEL_SECRET`, `PANEL_TRUST_PROXY=1` y `PANEL_COOKIE_SECURE=1`
   si no están, y si falta `PANEL_PASSWORD` la genera y la imprime una vez (queda
   en `variables.env`).
-- `PANEL_COOKIE_SECURE=1` implica login **solo por HTTPS**. Para probar antes de
-  certbot por `http://IP:8030`, ponelo en 0 y recreá el panel.
+- `PANEL_COOKIE_SECURE=1` implica login **solo por HTTPS**. Para probar antes del
+  certificado, entrá por `http://127.0.0.1:8030/login` con un túnel SSH, o ponelo
+  en 0 y recreá el panel.
 - El panel no necesita declararse en el compose: el script lo levanta con
   `docker run --name notibot-panel ... -p 127.0.0.1:8030:8030`. Si agregás el
   servicio al compose, usa ese y no duplica el contenedor.
@@ -181,7 +182,10 @@ están en `old_version/bs4_pre_scrapling/scraping/`.
 
 El panel lo levanta `deploy_github.sh` en el `--apply` con `docker run` (no lo
 arranca `bot_telegram.py`). Escucha en **8030** y se publica **solo en el
-loopback del server**; el que sale a internet es nginx con el dominio y TLS.
+loopback del server**; el que sale a internet es **Nginx Proxy Manager**, que
+corre como contenedor. Por eso el script detecta el contenedor de NPM y suma el
+panel a **su red de docker**: así el proxy le llega por `notibot-panel:8030` sin
+que haya que publicar el 8030 en ninguna interfaz pública.
 
 ```bash
 docker ps --filter name=notibot-panel
@@ -209,10 +213,11 @@ cambiando el comando:
     restart: unless-stopped
 ```
 
-- `127.0.0.1:8030:8030` publica el puerto **solo en loopback**, así nginx (que
-  corre en el host) llega por `http://127.0.0.1:8030` y nadie entra directo por
-  IP. Si tu nginx está en otro contenedor, sacá el prefijo `127.0.0.1:` y usá la
-  red de docker en el `proxy_pass`.
+- `127.0.0.1:8030:8030` publica el puerto **solo en loopback**: nadie entra
+  directo por IP y el script puede chequear la salud con `curl`. El tráfico real
+  entra por la red de NPM (`--network <red de NPM>`), no por ese puerto.
+  Si lo armás a mano en el compose, agregá `networks: [<red de NPM>]` al
+  servicio para que NPM lo resuelva por nombre.
 - Se llama `notibot-panel` a propósito: `deploy_github.sh` recrea todos los
   servicios cuyo nombre contenga "notibot", así que entra solo en el swap.
 - Tiene que usar la misma imagen que los cron: la vieja (Python 3.9) no importa
@@ -231,34 +236,49 @@ El script completa estas líneas solo si faltan (a `PANEL_PASSWORD` la genera y
 la imprime una vez). El usuario es implícito: la pantalla de login pide **solo
 la contraseña**. La sesión dura 12 h.
 
-`PANEL_TRUST_PROXY=1` es obligatorio detrás de nginx: si no, todas las visitas
+`PANEL_TRUST_PROXY=1` es obligatorio detrás del proxy: si no, todas las visitas
 llegan con la IP del proxy y los 6 intentos fallidos de cualquiera bloquean a
 todos. `PANEL_COOKIE_SECURE=1` fuerza la cookie `Secure` detrás de HTTPS.
 
-### 3. DNS y nginx
+### 3. DNS y Nginx Proxy Manager
 
 1. Apuntá un `A` de `panelnoti.fullware.com.ar` a la IP del server (y `AAAA`
    solo si el server tiene IPv6 pública; si no, no lo crees).
-2. Copiá la config del repo y activala:
+2. En NPM: **Hosts → Proxy Hosts → Add Proxy Host**.
+   - Domain Names: `panelnoti.fullware.com.ar`
+   - Scheme: `http`
+   - Forward Hostname / IP: `notibot-panel`
+   - Forward Port: `8030`
+   - Block Common Exploits: sí (opcional)
+   - Websockets Support: no hace falta
+3. Pestaña **SSL**: `Request a new SSL Certificate` con Let's Encrypt,
+   `Force SSL` y `HTTP/2 Support` activados. NPM emite y renueva el
+   certificado solo; no hay certbot en el host ni bloque 443 que mantener.
+
+Si el proxy no resuelve `notibot-panel`, mirá en qué red quedó cada uno:
 
 ```bash
-sudo cp /home/mlorenzo/docker/app2-notibot-V2/deploy/nginx-panel.conf \
-        /etc/nginx/sites-available/notibot-panel
-sudo ln -sf /etc/nginx/sites-available/notibot-panel /etc/nginx/sites-enabled/notibot-panel
-sudo nginx -t && sudo systemctl reload nginx
+docker inspect notibot-panel --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}'
+docker inspect <contenedor-de-npm> --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}'
 ```
 
-3. Emití el certificado (certbot agrega el bloque 443 y el redirect solo):
+Tienen que compartir al menos una. El script la detecta solo en el `--apply`
+(línea `proxy : <contenedor de NPM> -> el panel se suma a la red ...`). Si querés
+forzarla: `RED_NPM=<red> bash deploy/deploy_github.sh --apply`.
 
-```bash
-sudo certbot --nginx -d panelnoti.fullware.com.ar
-```
+Si NPM corre con `network_mode: host` o en la red `bridge` por defecto, no hay DNS
+por nombre: en ese caso el panel queda solo en loopback y el `Forward Hostname`
+tiene que ser la IP del server (y el panel tener el 8030 publicado), o pasás el
+panel al compose con la red de NPM.
 
 ### 4. Verificar
 
 ```bash
-# desde tu máquina, con el panel ya recreado
-curl -sI https://panelnoti.fullware.com.ar/login | head -1     # 200
+# desde el server, el panel responde en loopback
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8030/login   # 200
+
+# desde tu máquina, ya con el Proxy Host y el SSL de NPM
+curl -sI https://panelnoti.fullware.com.ar/login | head -1            # 200
 ```
 
 Después entrá, hacé login y confirmá en el navegador que la cookie
