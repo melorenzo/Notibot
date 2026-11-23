@@ -1,5 +1,28 @@
 # Deploy en el server
 
+## Camino rápido (GitHub, sin scp)
+
+Todo está en `deploy/deploy_github.sh`. Corre en el server y hace el clon, copia
+el estado, construye la imagen, valida variables y fuentes, y recién después
+hace el swap con backup y rollback automático.
+
+```bash
+cd /home/mlorenzo/docker
+bash app2-notibot-V2/deploy/deploy_github.sh             # valida, no toca producción
+bash app2-notibot-V2/deploy/deploy_github.sh --apply     # pasa a producción
+bash app2-notibot-V2/deploy/deploy_github.sh --rollback  # vuelve al backup más reciente
+```
+
+El modo `--check` (default) clona en `app2-notibot-nuevo`, copia `variables.env`,
+`data/`, `logs/`, `token_jwt/`, `keys/` y `config/` desde el directorio de
+producción, construye la imagen y corre `ba_static`, `ba_noticias`, `lanacion` e
+`infobae` contando items. No toca los contenedores que están publicando.
+
+`equipoba` no se prueba ahí porque necesita el contenedor de Selenium; se valida
+con `deploy/smoke_test.sh` después del swap.
+
+## Procedimiento manual
+
 El compose monta esta carpeta en `/app` (`./app2-notibot-V2:/app`), así que el
 código entra por volumen. **Pero esta versión sí necesita rebuild de la imagen**:
 pasó a Python 3.12 y agregó `scrapling`. Con la imagen vieja (3.9) los scrapers
