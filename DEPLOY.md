@@ -31,7 +31,12 @@ Detalle de cada paso en las secciones de abajo.
   script guarda `../notibot-antes-<fecha>.status` y `.patch`), y los que no están
   en el repo (`variables.env`, `data/`, `logs/`, `token_jwt/`, `keys/`,
   `config/`) quedan intactos.
-- Si falta `variables.env`, el script corta: copiala de un respaldo antes.
+- Si falta `variables.env` (un clone limpio no lo trae porque nunca estuvo en el
+  repo), el script lo recupera solo: busca un `variables.env` en un directorio
+  hermano del compose y, si no hay, lo reconstruye del entorno de un contenedor
+  del notibot que ya existe (`docker inspect`). Solo corta si no encuentra
+  ninguna de las dos cosas. Nunca imprime valores: dice de dónde salió y
+  cuántas variables tiene.
 - `data/used_items.json` no está en el repo; si falta, el bot vuelve a publicar
   notas que ya salieron.
 - El script agrega `PANEL_SECRET`, `PANEL_TRUST_PROXY=1` y `PANEL_COOKIE_SECURE=1`

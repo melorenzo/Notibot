@@ -87,6 +87,41 @@ asegurar_panel_env() { # $1 = variables.env
   return 0
 }
 
+# Si a producción le falta variables.env (el archivo nunca estuvo en el repo: un
+# clone limpio no lo trae), se recupera sin pedir nada a mano:
+#   1. el entorno de un contenedor del notibot que ya existe (docker inspect):
+#      es lo que está corriendo ahora, así que manda sobre copias viejas
+#   2. cualquier variables.env hermano en el directorio del compose
+# Nunca imprime valores: solo de dónde salió y cuántas variables tiene.
+buscar_variables_env() { # $1 = destino
+  local destino="$1" f c n
+  [ -f "$destino" ] && return 0
+  for c in $(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -i notibot); do
+    docker inspect "$c" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+      | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' \
+      | grep -v -E '^(PATH|HOSTNAME|HOME|LANG|GPG_KEY|DEBIAN_FRONTEND|PYTHON[A-Z0-9_]*)=' \
+      > "$destino.tmp" || true
+    if grep -q -E '^(TELEGRAM_BOT_TOKEN|GROQ_API_KEY)=' "$destino.tmp" 2>/dev/null; then
+      mv "$destino.tmp" "$destino" || continue
+      chmod 600 "$destino" 2>/dev/null || true
+      n=$(grep -c -E '^[A-Za-z_][A-Za-z0-9_]*=' "$destino" 2>/dev/null || true)
+      [ -n "$n" ] || n=0
+      aviso "variables.env: reconstruido del contenedor $c ($n variables)"
+      return 0
+    fi
+    rm -f "$destino.tmp" 2>/dev/null || true
+  done
+  for f in "$COMPOSE_DIR"/*/variables.env; do
+    [ -f "$f" ] || continue
+    [ "$f" = "$destino" ] && continue
+    cp "$f" "$destino" 2>/dev/null || continue
+    chmod 600 "$destino" 2>/dev/null || true
+    aviso "variables.env: recuperado de $f"
+    return 0
+  done
+  return 1
+}
+
 recrear_panel() { # $1 = imagen, $2 = directorio del proyecto
   local img="$1" dir="$2"
   docker rm -f notibot-panel >/dev/null 2>&1 || true
@@ -245,14 +280,16 @@ aviso "commit: $SHA"
 msg "2. Estado del directorio actual"
 if [ "$EN_SITIO" = 1 ]; then
   # el estado ya vive acá: nunca se copia ni se pisa
-  [ -f "$PROD_DIR/variables.env" ] || fallar "falta $PROD_DIR/variables.env: copiala del directorio viejo antes de seguir"
+  buscar_variables_env "$PROD_DIR/variables.env" \
+    || fallar "falta $PROD_DIR/variables.env y no encontré de dónde recuperarlo (ni un directorio hermano ni un contenedor notibot corriendo); copiala a mano"
+  aviso "variables.env: presente ($(grep -c -E '^[A-Za-z_][A-Za-z0-9_]*=' "$PROD_DIR/variables.env" 2>/dev/null || echo 0) variables)"
   [ -f "$PROD_DIR/data/used_items.json" ] || aviso "OJO: no veo data/used_items.json (sin historial se republica todo)"
   aviso "estado: queda como está (variables.env, data/, logs/, token_jwt/, keys/, config/)"
 else
   if [ -f "$WORK_DIR/variables.env" ]; then
     aviso "variables.env: ya estaba en el clon, lo dejo"
   else
-    [ -f "$PROD_DIR/variables.env" ] || fallar "no encuentro $PROD_DIR/variables.env"
+    buscar_variables_env "$PROD_DIR/variables.env" || fallar "no encuentro $PROD_DIR/variables.env"
     cp "$PROD_DIR/variables.env" "$WORK_DIR/variables.env" || fallar "no pude copiar variables.env"
     aviso "variables.env: copiado de producción"
   fi
