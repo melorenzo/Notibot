@@ -2,6 +2,11 @@
 
 ## Orden de ejecución (checklist)
 
+Situación del server: el directorio viejo quedó en `app2-notibot-v2-viejo` y el
+repo ya está clonado en `app2-notibot-V2`. En ese caso el script detecta el
+clon y corre **en sitio**: `git fetch/reset`, copia lo que falte del directorio
+viejo, construye y recrea los servicios. No hay clon aparte ni swap.
+
 El orden importa: las credenciales y el servicio del compose tienen que existir
 **antes** del `--check`, y el panel no se levanta a mano nunca (con la imagen
 vieja de Python 3.9 no importa scrapling).
@@ -9,56 +14,60 @@ vieja de Python 3.9 no importa scrapling).
 ```
 1. PANEL_* en app2-notibot-V2/variables.env (600)      → todavía no reinicia nada
 2. servicio notibot-panel en docker-compose.yml        → docker compose config -q
-3. traer el script desde GitHub (si el directorio vivo no lo tiene)
-4. bash deploy_github.sh                    (--check)  → valida, no toca producción
-   └─ si una fuente da 0 items: rm -rf app2-notibot-nuevo/data/scrapling y repetir
-5. bash deploy_github.sh --apply                       → swap + panel 200 + smoke test
-6. registro DNS A de panelnoti.fullware.com.ar         → dig +short
-7. nginx-panel.conf + nginx -t + reload                → curl http://panelnoti...
-8. certbot --nginx -d panelnoti.fullware.com.ar        → curl -sI https://... 200
-9. login en el navegador + una corrida de prueba desde el panel
-10. retirar del crontab del host los docker exec notibot-cron-*
-11. (postergado) rotar LT_PASS, PR_PASS, LVP_PASS, IC_PASS, PP_PASS, HB_PASS
+3. bash app2-notibot-V2/deploy/deploy_github.sh        (--check)  → valida, no recrea
+   └─ si una fuente da 0 items: rm -rf app2-notibot-V2/data/scrapling y repetir
+4. bash app2-notibot-V2/deploy/deploy_github.sh --apply → recrea + panel 200 + smoke
+5. registro DNS A de panelnoti.fullware.com.ar         → dig +short
+6. nginx-panel.conf + nginx -t + reload                → curl http://panelnoti...
+7. certbot --nginx -d panelnoti.fullware.com.ar        → curl -sI https://... 200
+8. login en el navegador + una corrida de prueba desde el panel
+9. retirar del crontab del host los docker exec notibot-cron-*
+10. (postergado) rotar LT_PASS, PR_PASS, LVP_PASS, IC_PASS, PP_PASS, HB_PASS
 ```
 
 Detalle de cada paso en las secciones de abajo.
 
 ### Gotchas que cortan el deploy
 
-- El paso 2 va **antes** del `--check`: el script exige `PANEL_PASSWORD` en
-  `variables.env`, que copia desde producción.
-- El paso 1 va antes del paso 5, no antes del 4: los contenedores actuales no
-  leen `variables.env` hasta que se recrean, así que agregar las líneas no
-  afecta lo que está publicando.
-- Si `app2-notibot-nuevo/` quedó de una corrida anterior, tiene su propio
-  `variables.env` y el script **no** lo vuelve a copiar (avisa "ya estaba, lo
-  dejo"). Borralo o sincronizalo a mano para que tome `PANEL_PASSWORD`.
-- El `deploy/deploy_github.sh` que corre es el del directorio desde el que lo
-  invocás. Si el directorio vivo es viejo, cloná el repo aparte y corré ese:
-
-```bash
-cd /home/mlorenzo/docker
-git clone --branch main https://github.com/melorenzo/Notibot.git app2-notibot-deploy
-bash app2-notibot-deploy/deploy/deploy_github.sh
-```
+- El paso 1 va antes del 3: tanto el `--check` como el `--apply` leen
+  `variables.env` del directorio de trabajo y fallan si no está
+  `PANEL_PASSWORD`.
+- El paso 1 va antes del 4, no antes del 3: los contenedores actuales no leen
+  `variables.env` hasta que se recrean, así que agregar las líneas no afecta lo
+  que está publicando.
+- Si el clon nuevo ya tiene `variables.env`, el script lo deja (avisa "ya
+  estaba, lo dejo"): agregale ahí las `PANEL_*`.
+- El estado se copia desde `app2-notibot-v2-viejo`. Si el directorio viejo tiene
+  otro nombre: `OLD_DIR=/home/mlorenzo/docker/mi-viejo bash deploy/deploy_github.sh`.
+- El `git reset` del `--check` no toca los contenedores que publican: quedaron
+  montados sobre el directorio renombrado, no sobre el clon nuevo.
+- El `--apply` anota el commit anterior en `/home/mlorenzo/docker/.notibot-prev-sha`;
+  `--rollback` hace `git reset` a ese commit, reconstruye y recrea.
+- Si el directorio de producción **no** es un clon (no tiene `.git`), el script
+  cae al modo viejo: clona en `app2-notibot-nuevo` y hace el swap con backup.
 
 ## Camino rápido (GitHub, sin scp)
 
-Todo está en `deploy/deploy_github.sh`. Corre en el server y hace el clon, copia
-el estado, construye la imagen, valida variables y fuentes, y recién después
-hace el swap con backup y rollback automático.
+Todo está en `deploy/deploy_github.sh`. Hay dos modos según cómo esté el
+directorio de producción:
+
+- **en sitio** (el caso actual): `app2-notibot-V2` ya es un clon → actualiza con
+  git, copia el estado faltante desde `app2-notibot-v2-viejo` y recrea los
+  servicios. Sin backup de directorios: el rollback es `git reset`.
+- **clon aparte**: si producción no es git, clona en `app2-notibot-nuevo` y hace
+  el swap con backup y rollback automático.
 
 ```bash
 cd /home/mlorenzo/docker
-bash app2-notibot-V2/deploy/deploy_github.sh             # valida, no toca producción
+bash app2-notibot-V2/deploy/deploy_github.sh             # valida, no recrea nada
 bash app2-notibot-V2/deploy/deploy_github.sh --apply     # pasa a producción
-bash app2-notibot-V2/deploy/deploy_github.sh --rollback  # vuelve al backup más reciente
+bash app2-notibot-V2/deploy/deploy_github.sh --rollback  # vuelve al commit anterior
 ```
 
-El modo `--check` (default) clona en `app2-notibot-nuevo`, copia `variables.env`,
-`data/`, `logs/`, `token_jwt/`, `keys/` y `config/` desde el directorio de
-producción, construye la imagen y corre `ba_static`, `ba_noticias`, `lanacion` e
-`infobae` contando items. No toca los contenedores que están publicando.
+El modo `--check` (default) trae el código, copia `variables.env`, `data/`,
+`logs/`, `token_jwt/`, `keys/` y `config/` de lo que falte, construye la imagen y
+corre `ba_static`, `ba_noticias`, `lanacion` e `infobae` contando items en
+contenedores descartables. No recrea los servicios que están publicando.
 
 `equipoba` no se prueba ahí porque necesita el contenedor de Selenium; se valida
 con `deploy/smoke_test.sh` después del swap.

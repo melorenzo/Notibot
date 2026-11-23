@@ -25,6 +25,8 @@ COMPOSE_DIR="${COMPOSE_DIR:-/home/mlorenzo/docker}"
 PROD_DIR="${PROD_DIR:-$COMPOSE_DIR/app2-notibot-V2}"
 WORK_DIR="${WORK_DIR:-$COMPOSE_DIR/app2-notibot-nuevo}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
+OLD_DIR="${OLD_DIR:-$COMPOSE_DIR/app2-notibot-v2-viejo}"
+PREV=""
 
 MODO="check"
 case "${1:-}" in
@@ -63,8 +65,31 @@ copiar_dir() { # origen con barra final, destino con barra final
   fi
 }
 
+# ── modo en sitio ──────────────────────────────────────────────────────────
+# Si producción ya es un clon del repo (el directorio viejo se movió a
+# app2-notibot-v2-viejo), no hay clon aparte ni swap: se actualiza con git y se
+# recrean los servicios. Los contenedores viejos siguen montados sobre el
+# directorio renombrado, así que el reset no los toca.
+EN_SITIO=0
+DIR_TRABAJO="$WORK_DIR"
+if [ -d "$PROD_DIR/.git" ]; then
+  EN_SITIO=1
+  DIR_TRABAJO="$PROD_DIR"
+fi
+
 # ─────────────────────────────────────────────────────────── rollback ──
 if [ "$MODO" = "rollback" ]; then
+  if [ "$EN_SITIO" = 1 ] && [ -f "$COMPOSE_DIR/.notibot-prev-sha" ]; then
+    PREV=$(cat "$COMPOSE_DIR/.notibot-prev-sha")
+    msg "Volviendo el código en sitio a ${PREV:0:7}"
+    git -C "$PROD_DIR" reset --hard --quiet "$PREV" || fallar "no pude volver a $PREV"
+    IMG_COMPOSE=$(imagen_compose)
+    [ -n "$IMG_COMPOSE" ] || IMG_COMPOSE="app2-notibot:latest"
+    docker build -q -t "$IMG_COMPOSE" "$PROD_DIR" >/dev/null || fallar "falló el docker build del rollback"
+    compose up -d --force-recreate $(servicios) || fallar "no pude recrear los contenedores"
+    msg "Rollback listo: $(git -C "$PROD_DIR" rev-parse --short HEAD)"
+    exit 0
+  fi
   ULTIMO=$(ls -1d "$COMPOSE_DIR"/app2-notibot-V2.bak-* 2>/dev/null | sort | tail -1)
   [ -n "$ULTIMO" ] || fallar "no hay backups app2-notibot-V2.bak-* en $COMPOSE_DIR"
   msg "Volviendo a $(basename "$ULTIMO")"
@@ -83,7 +108,14 @@ compose version >/dev/null 2>&1 || fallar "no encuentro docker compose (plugin)"
 [ -f "$PROD_DIR/cron_base.py" ] || fallar "$PROD_DIR no parece el proyecto del notibot"
 [ -d "$COMPOSE_DIR" ] || fallar "no existe $COMPOSE_DIR"
 aviso "producción : $PROD_DIR"
-aviso "prueba     : $WORK_DIR"
+if [ "$EN_SITIO" = 1 ]; then
+  aviso "modo       : en sitio (repo clonado, sin swap)"
+  [ -d "$OLD_DIR" ] && aviso "estado     : de $(basename "$OLD_DIR") (lo que falte)" \
+                     || aviso "estado     : OJO, no existe $OLD_DIR (pasá OLD_DIR=... o copiá variables.env a mano)"
+  aviso "prueba     : $DIR_TRABAJO (el mismo directorio)"
+else
+  aviso "prueba     : $WORK_DIR"
+fi
 aviso "compose    : $COMPOSE_DIR"
 aviso "servicios  : $(servicios)"
 if compose config --services 2>/dev/null | grep -qx "notibot-panel"; then
@@ -94,7 +126,13 @@ fi
 
 # ─────────────────────────────────────────────── 1. traer el código ──
 msg "1. Código desde GitHub ($BRANCH)"
-if [ -d "$WORK_DIR/.git" ]; then
+if [ "$EN_SITIO" = 1 ]; then
+  PREV=$(git -C "$PROD_DIR" rev-parse HEAD)
+  git -C "$PROD_DIR" fetch --quiet origin "$BRANCH" || fallar "no pude hacer fetch"
+  git -C "$PROD_DIR" checkout --quiet "$BRANCH" || fallar "no pude cambiar a $BRANCH"
+  git -C "$PROD_DIR" reset --hard --quiet "origin/$BRANCH" || fallar "no pude actualizar el código"
+  aviso "antes: ${PREV:0:7}"
+elif [ -d "$WORK_DIR/.git" ]; then
   git -C "$WORK_DIR" fetch --quiet origin "$BRANCH" || fallar "no pude hacer fetch"
   git -C "$WORK_DIR" checkout --quiet "$BRANCH" || fallar "no pude cambiar a $BRANCH"
   git -C "$WORK_DIR" reset --hard --quiet "origin/$BRANCH" || fallar "no pude actualizar el código"
@@ -104,38 +142,41 @@ else
   git clone --quiet --branch "$BRANCH" "$REPO_URL" "$WORK_DIR" || fallar "no pude clonar $REPO_URL"
   aviso "clonado"
 fi
-SHA=$(git -C "$WORK_DIR" rev-parse --short HEAD)
+SHA=$(git -C "$DIR_TRABAJO" rev-parse --short HEAD)
 aviso "commit: $SHA"
 
 # ───────────────────────────────────────── 2. estado y credenciales ──
 msg "2. Estado del directorio actual"
-if [ -f "$WORK_DIR/variables.env" ]; then
-  aviso "variables.env: ya estaba en el directorio de prueba, lo dejo"
+ORIGEN="$PROD_DIR"
+[ "$EN_SITIO" = 1 ] && ORIGEN="$OLD_DIR"
+if [ -f "$DIR_TRABAJO/variables.env" ]; then
+  aviso "variables.env: ya estaba, lo dejo (si le falta PANEL_PASSWORD, agregala)"
 else
-  cp "$PROD_DIR/variables.env" "$WORK_DIR/variables.env" || fallar "no pude copiar variables.env"
-  chmod 600 "$WORK_DIR/variables.env"
-  aviso "variables.env: copiado (600)"
+  [ -f "$ORIGEN/variables.env" ] || fallar "no encuentro variables.env en $ORIGEN"
+  cp "$ORIGEN/variables.env" "$DIR_TRABAJO/variables.env" || fallar "no pude copiar variables.env"
+  chmod 600 "$DIR_TRABAJO/variables.env"
+  aviso "variables.env: copiado de $(basename "$ORIGEN") (600)"
 fi
 for d in data logs token_jwt keys; do
-  copiar_dir "$PROD_DIR/$d/" "$WORK_DIR/$d/"
-  [ -d "$PROD_DIR/$d" ] && aviso "$d/: copiado"
+  copiar_dir "$ORIGEN/$d/" "$DIR_TRABAJO/$d/"
+  [ -d "$ORIGEN/$d" ] && aviso "$d/: copiado"
 done
-copiar_dir "$PROD_DIR/config/" "$WORK_DIR/config/"
-aviso "config/: copiado (diarios.json y estado del panel del server mandan)"
-if [ -f "$WORK_DIR/config/secrets.env" ]; then chmod 600 "$WORK_DIR/config/secrets.env"; fi
-# no arrastrar salidas de pruebas viejas
-rm -f "$WORK_DIR"/salidas_*.json 2>/dev/null || true
+copiar_dir "$ORIGEN/config/" "$DIR_TRABAJO/config/"
+aviso "config/: copiado de $(basename "$ORIGEN") (diarios.json y estado del panel del server mandan)"
+if [ -f "$DIR_TRABAJO/config/secrets.env" ]; then chmod 600 "$DIR_TRABAJO/config/secrets.env"; fi
+# no arrastrar salidas de pruebas viejas (en sitio son las de producción)
+if [ "$EN_SITIO" = 0 ]; then rm -f "$DIR_TRABAJO"/salidas_*.json 2>/dev/null || true; fi
 
 # ───────────────────────────────────────────────────── 3. imagen ──
 msg "3. Imagen (Python 3.12 + scrapling)"
 IMG="notibot:deploy-$SHA"
-docker build -q -t "$IMG" "$WORK_DIR" >/dev/null || fallar "falló el docker build"
+docker build -q -t "$IMG" "$DIR_TRABAJO" >/dev/null || fallar "falló el docker build"
 docker run --rm "$IMG" python -c "import sys, scrapling; print('    python ' + sys.version.split()[0] + ' | scrapling ' + scrapling.__version__)" \
   || fallar "la imagen no importa scrapling"
 
 # ─────────────────────────────────────── 4. variables requeridas ──
 msg "4. Variables requeridas"
-docker run --rm -i -v "$WORK_DIR:/app" --env-file "$WORK_DIR/variables.env" "$IMG" python - <<'PY' || FALTAN=1
+docker run --rm -i -v "$DIR_TRABAJO:/app" --env-file "$DIR_TRABAJO/variables.env" "$IMG" python - <<'PY' || FALTAN=1
 import json, os, sys
 
 faltan = []
@@ -173,11 +214,11 @@ for s in ba_static ba_noticias lanacion infobae; do
     lanacion)    VAR=SALIDAS_LANACION ;;
     infobae)     VAR=SALIDAS_INFOBAE ;;
   esac
-  docker run --rm -v "$WORK_DIR:/app" --env-file "$WORK_DIR/variables.env" \
+  docker run --rm -v "$DIR_TRABAJO:/app" --env-file "$DIR_TRABAJO/variables.env" \
     -e SCRAPER_DEBUG=1 "$IMG" sh -c "cd /app && python scraping/scraper_$s.py" >/dev/null 2>&1
-  ARCHIVO=$(basename "$(grep -E "^$VAR=" "$WORK_DIR/variables.env" 2>/dev/null | head -1 | cut -d= -f2- || true)")
+  ARCHIVO=$(basename "$(grep -E "^$VAR=" "$DIR_TRABAJO/variables.env" 2>/dev/null | head -1 | cut -d= -f2- || true)")
   [ -n "$ARCHIVO" ] || ARCHIVO="salidas_$s.json"
-  N=$(docker run --rm -v "$WORK_DIR:/app" "$IMG" python -c "
+  N=$(docker run --rm -v "$DIR_TRABAJO:/app" "$IMG" python -c "
 import json, sys
 try:
     d = json.load(open('/app/$ARCHIVO', encoding='utf-8')) or []
@@ -205,25 +246,38 @@ fi
 
 [ -z "$FALLAS" ] || fallar "no aplico: fuentes sin items ->$FALLAS"
 
-msg "6. Swap a producción"
-VIEJO="$COMPOSE_DIR/app2-notibot-V2.bak-$STAMP"
+VIEJO=""
+if [ "$EN_SITIO" = 1 ]; then
+  msg "6. Recrear los servicios (en sitio, sin swap)"
+  printf '%s\n' "$PREV" > "$COMPOSE_DIR/.notibot-prev-sha"
+  aviso "commit anterior anotado: ${PREV:0:7} (--rollback vuelve a ese)"
+else
+  msg "6. Swap a producción"
+  VIEJO="$COMPOSE_DIR/app2-notibot-V2.bak-$STAMP"
+  mv "$PROD_DIR" "$VIEJO" || fallar "no pude mover producción a $VIEJO"
+  if ! mv "$WORK_DIR" "$PROD_DIR"; then
+    mv "$VIEJO" "$PROD_DIR"
+    fallar "no pude mover el directorio nuevo; producción quedó intacta"
+  fi
+fi
+
 IMG_COMPOSE=$(imagen_compose)
 if [ -n "$IMG_COMPOSE" ]; then
   docker tag "$IMG" "$IMG_COMPOSE" && aviso "imagen $IMG_COMPOSE actualizada"
 fi
 
-mv "$PROD_DIR" "$VIEJO" || fallar "no pude mover producción a $VIEJO"
-if ! mv "$WORK_DIR" "$PROD_DIR"; then
-  mv "$VIEJO" "$PROD_DIR"
-  fallar "no pude mover el directorio nuevo; producción quedó intacta"
-fi
-
 revertir() {
   echo "    revirtiendo..."
-  mv "$PROD_DIR" "$COMPOSE_DIR/app2-notibot-V2.fallado-$STAMP" 2>/dev/null || true
-  mv "$VIEJO" "$PROD_DIR" 2>/dev/null || true
+  if [ "$EN_SITIO" = 1 ]; then
+    git -C "$PROD_DIR" reset --hard --quiet "$PREV" 2>/dev/null || true
+    docker build -q -t "$IMG_COMPOSE" "$PROD_DIR" >/dev/null 2>&1 || true
+    echo "    código de vuelta en ${PREV:0:7}"
+  else
+    mv "$PROD_DIR" "$COMPOSE_DIR/app2-notibot-V2.fallado-$STAMP" 2>/dev/null || true
+    mv "$VIEJO" "$PROD_DIR" 2>/dev/null || true
+    echo "    producción restaurada; el directorio fallado quedó en app2-notibot-V2.fallado-$STAMP"
+  fi
   compose up -d --force-recreate $(servicios) >/dev/null 2>&1 || true
-  echo "    producción restaurada; el directorio fallado quedó en app2-notibot-V2.fallado-$STAMP"
 }
 
 if ! compose up -d --force-recreate $(servicios); then
@@ -249,5 +303,9 @@ if ! bash "$PROD_DIR/deploy/smoke_test.sh"; then
 fi
 
 msg "Listo. Producción corre el commit $SHA"
-aviso "backup del código anterior: $VIEJO"
-aviso "rollback:  bash $0 --rollback"
+if [ "$EN_SITIO" = 1 ]; then
+  aviso "rollback:  bash $0 --rollback   (vuelve a ${PREV:0:7})"
+else
+  aviso "backup del código anterior: $VIEJO"
+  aviso "rollback:  bash $0 --rollback"
+fi
