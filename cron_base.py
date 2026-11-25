@@ -25,7 +25,7 @@ APP_ROOT = pathlib.Path(os.getenv("APP_ROOT", "/app")).resolve()
 sys.path.insert(0, str(APP_ROOT))
 
 from core.diarios import posts_url, media_url, all_diarios
-from token_jwt.token_store import get_token_for_diario
+from core.token_store import get_token_for_diario
 from procesing.procesar_gemini import procesar_con_gemini
 from procesing.parser_ai import parse_ai_output
 from core.image_fetcher import fetch_image

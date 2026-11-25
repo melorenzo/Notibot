@@ -3,7 +3,7 @@
 """
 Notibot (Telegram) - versión integrada con:
 - core.diarios (config de diarios)
-- token_jwt.token_store (tokens JWT automáticos, renovables)
+- core.token_store (tokens JWT automáticos, renovables)
 - scrapers externos (La Nación, Infobae, LinkedIn, X, Comuna 15)
 - Gemini para refritar noticias
 """
@@ -44,7 +44,7 @@ from telegram.ext import (
 
 # --- Integración con tu stack de JWT/diarios ---
 from core.diarios import posts_url, media_url, all_diarios
-from token_jwt.token_store import get_token_for_diario
+from core.token_store import get_token_for_diario
 
 # ---------------------------
 # Logging

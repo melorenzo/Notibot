@@ -83,6 +83,30 @@ publicando.
 `equipoba` no se prueba ahí porque necesita el contenedor de Selenium; se valida
 con `deploy/smoke_test.sh` en el `--apply`.
 
+### Estado que no vive en el repo
+
+`variables.env`, `data/`, `logs/`, `token_jwt/tokens.json`, `keys/` y
+`config/secrets.env` están fuera de git: el deploy en sitio los deja como están
+y nunca los pisa. El problema es un clon nuevo o un directorio reemplazado: ahí
+no hay estado, y si falta `data/used_items.json` el bot **republica notas que ya
+salieron**. Se copia del directorio viejo antes de dejar correr los cron:
+
+```bash
+OLD=/home/mlorenzo/docker/app2-notibot-v2-viejo    # donde quedó el viejo
+NEW=/home/mlorenzo/docker/app2-notibot-V2
+
+ls -la "$OLD/data" "$OLD/keys" 2>/dev/null
+cp -a "$OLD/data/."      "$NEW/data/"
+cp -a "$OLD/keys/."      "$NEW/keys/"
+cp -a "$OLD/token_jwt/." "$NEW/token_jwt/"
+```
+
+`token_jwt/tokens.json` son los JWT de los diarios: si falta, se piden de nuevo
+con las credenciales del `variables.env` en la primera publicación.
+`keys/linkedin_cookies.pkl` es la sesión de LinkedIn (fuente legacy). El código
+de los tokens ahora está en `core/token_store.py`; `token_jwt/` quedó solo con
+estado.
+
 ## Procedimiento manual
 
 El compose monta esta carpeta en `/app` (`./app2-notibot-V2:/app`), así que el
