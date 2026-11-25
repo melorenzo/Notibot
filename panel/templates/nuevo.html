@@ -91,9 +91,9 @@
         <input id="dueno" name="dueno" type="text" value="{{ valores.dueno or '' }}" placeholder="Nombre y apellido">
       </div>
       <div class="campo">
-        <label for="telegram_id">Chat ID de Telegram <span class="mini">(opcional)</span></label>
-        <input id="telegram_id" name="telegram_id" type="text" value="{{ valores.telegram_id or '' }}" placeholder="123456789">
-        <span class="mini">Le avisa por Telegram cada vez que se publica y le habilita el diario en el bot (el bot lo detecta solo, sin reiniciar).</span>
+        <label for="telegram_id">Chat IDs de Telegram <span class="mini">(opcional, separados por coma)</span></label>
+        <input id="telegram_id" name="telegram_id" type="text" value="{{ valores.telegram_id or '' }}" placeholder="123456789, 987654321">
+        <span class="mini">Les avisa por Telegram cada vez que se publica y les habilita el diario en el bot (el bot lo detecta solo, sin reiniciar). Se pueden poner varios separados por coma.</span>
       </div>
     </div>
   </section>

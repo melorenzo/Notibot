@@ -251,13 +251,24 @@ def parsear_horarios(texto: str) -> List[str]:
     return sorted(horarios)
 
 
-def parsear_telegram(texto: str) -> Optional[str]:
+def parsear_telegram(texto: str) -> List[str]:
+    """Uno o varios chat IDs separados por coma, punto y coma o espacio."""
     valor = (texto or "").strip()
     if not valor:
-        return None
-    if not re.match(r"^\d{5,15}$", valor):
-        raise ErrorValidacion("El chat ID de Telegram debe ser numérico.")
-    return valor
+        return []
+    ids: List[str] = []
+    for parte in re.split(r"[,;\s]+", valor):
+        parte = parte.strip()
+        if not parte:
+            continue
+        if not re.match(r"^\d{5,15}$", parte):
+            raise ErrorValidacion(
+                "Los chat IDs de Telegram deben ser numéricos (5 a 15 dígitos), "
+                "separados por coma."
+            )
+        if parte not in ids:
+            ids.append(parte)
+    return ids
 
 
 def crear_diario(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -286,7 +297,7 @@ def crear_diario(payload: Dict[str, Any]) -> Dict[str, Any]:
     tonos = [t for t in (payload.get("tonos") or []) if t in TONOS_VALIDOS] or ["realista"]
     horarios = parsear_horarios(payload.get("horarios") or "")
     dueno = (payload.get("dueno") or "").strip() or "Sin asignar"
-    telegram_id = parsear_telegram(payload.get("telegram_id") or "")
+    telegram_ids = parsear_telegram(payload.get("telegram_id") or "")
     notas = max(1, min(int(payload.get("notas_por_corrida") or 1), 5))
 
     prefijo = prefijo_env(slug)
@@ -294,8 +305,8 @@ def crear_diario(payload: Dict[str, Any]) -> Dict[str, Any]:
     env_clave = "%s_PASS" % prefijo
 
     ids = {ADMIN_TELEGRAM_ID: "Maty"}
-    if telegram_id:
-        ids[telegram_id] = dueno
+    for cid in telegram_ids:
+        ids[cid] = dueno
 
     entry = {
         "name": nombre,
@@ -306,8 +317,8 @@ def crear_diario(payload: Dict[str, Any]) -> Dict[str, Any]:
         "username_env": env_usuario,
         "password_env": env_clave,
         "allowed_telegram_ids": ids,
-        # Avisos de cada publicación: el dueño del diario (si cargó su chat ID).
-        "notify_telegram_ids": [telegram_id] if telegram_id else [],
+        # Avisos de cada publicación: todos los chat IDs cargados en el alta.
+        "notify_telegram_ids": list(telegram_ids),
         "default_status": payload.get("default_status") or "publish",
         "default_author": None,
         "default_categories": [],
@@ -324,7 +335,7 @@ def crear_diario(payload: Dict[str, Any]) -> Dict[str, Any]:
     state = ensure_state()
     state["diarios"][slug] = {
         "owner": dueno,
-        "owner_telegram_id": telegram_id,
+        "owner_telegram_id": telegram_ids[0] if telegram_ids else None,
         "tonos": tonos,
         "horarios": horarios,
         "gestionado_por": "panel",
