@@ -55,6 +55,12 @@ logging.basicConfig(
 )
 log = logging.getLogger("notibot")
 
+# httpx loguea a INFO la URL completa de cada request: en Telegram esa URL lleva
+# el token del bot (api.telegram.org/bot<TOKEN>/getUpdates) y quedaba escrito en
+# los logs. Con WARNING sólo se ven los errores.
+for _ruidoso in ("httpx", "httpcore"):
+    logging.getLogger(_ruidoso).setLevel(logging.WARNING)
+
 # ---------------------------
 # Paths base
 # ---------------------------

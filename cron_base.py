@@ -24,6 +24,12 @@ import requests
 APP_ROOT = pathlib.Path(os.getenv("APP_ROOT", "/app")).resolve()
 sys.path.insert(0, str(APP_ROOT))
 
+# httpx y httpcore loguean a INFO la URL completa de cada request. En Telegram
+# esa URL es api.telegram.org/bot<TOKEN>/sendMessage, así que a INFO el token del
+# bot termina escrito en los logs del cron. Con WARNING sólo se ven los fallos.
+for _ruidoso in ("httpx", "httpcore"):
+    logging.getLogger(_ruidoso).setLevel(logging.WARNING)
+
 from core.diarios import posts_url, media_url, all_diarios
 from core.token_store import get_token_for_diario
 from procesing.procesar_gemini import procesar_con_gemini
