@@ -159,6 +159,31 @@ recrear_panel() { # $1 = imagen, $2 = directorio del proyecto, $3 = red (opciona
   return 0
 }
 
+# config/diarios.json y config/panel_state.json están versionados, pero los
+# escribe el panel (alta, pausa, borrado). El git reset del deploy los devolvería
+# a la versión del repo y se perdería lo cargado desde el panel: se guardan antes
+# del reset y se devuelven tal cual después.
+CFG_TMP=""
+guardar_config() { # $1 = directorio del proyecto
+  local f
+  CFG_TMP=$(mktemp -d "${TMPDIR:-/tmp}/notibot-cfg.XXXXXX" 2>/dev/null) || { CFG_TMP=""; return 1; }
+  for f in diarios.json panel_state.json; do
+    [ -f "$1/config/$f" ] && cp -a "$1/config/$f" "$CFG_TMP/" 2>/dev/null || true
+  done
+  return 0
+}
+
+restaurar_config() { # $1 = directorio del proyecto
+  local f
+  [ -n "${CFG_TMP:-}" ] && [ -d "$CFG_TMP" ] || return 0
+  for f in "$CFG_TMP"/*.json; do
+    [ -f "$f" ] || continue
+    cp -a "$f" "$1/config/$(basename "$f")" 2>/dev/null || true
+  done
+  rm -rf "$CFG_TMP" 2>/dev/null || true
+  CFG_TMP=""
+}
+
 codigo_panel() {
   local c
   c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
@@ -228,7 +253,9 @@ if [ "$MODO" = "rollback" ]; then
   if [ "$EN_SITIO" = 1 ] && [ -f "$COMPOSE_DIR/.notibot-prev-sha" ]; then
     PREV=$(cat "$COMPOSE_DIR/.notibot-prev-sha")
     msg "Volviendo el código en sitio a ${PREV:0:7}"
+    guardar_config "$PROD_DIR"
     git -C "$PROD_DIR" reset --hard --quiet "$PREV" || fallar "no pude volver a $PREV"
+    restaurar_config "$PROD_DIR"
     IMG_COMPOSE=$(imagen_compose)
     [ -n "$IMG_COMPOSE" ] || IMG_COMPOSE="app2-notibot:latest"
     docker build -q -t "$IMG_COMPOSE" "$PROD_DIR" >/dev/null || fallar "falló el docker build del rollback"
@@ -289,9 +316,12 @@ if [ "$EN_SITIO" = 1 ]; then
     aviso "OJO: $N_MOD archivo(s) versionados con cambios locales; el reset los descarta"
   fi
   aviso "estado previo guardado en $(basename "$RESPALDO").{status,patch}"
+  guardar_config "$PROD_DIR"
+  aviso "config/: diarios.json y panel_state.json se conservan (los escribe el panel)"
   git -C "$PROD_DIR" fetch --quiet origin "$BRANCH" || fallar "no pude hacer fetch"
   git -C "$PROD_DIR" checkout --quiet "$BRANCH" || fallar "no pude cambiar a $BRANCH"
   git -C "$PROD_DIR" reset --hard --quiet "origin/$BRANCH" || fallar "no pude actualizar el código"
+  restaurar_config "$PROD_DIR"
   aviso "antes: ${PREV:0:7}"
 elif [ -d "$WORK_DIR/.git" ]; then
   git -C "$WORK_DIR" fetch --quiet origin "$BRANCH" || fallar "no pude hacer fetch"

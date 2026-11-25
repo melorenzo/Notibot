@@ -37,6 +37,10 @@ Detalle de cada paso en las secciones de abajo.
   del notibot que ya existe (`docker inspect`). Solo corta si no encuentra
   ninguna de las dos cosas. Nunca imprime valores: dice de dónde salió y
   cuántas variables tiene.
+- `config/diarios.json` y `config/panel_state.json` sí están versionados, pero
+  los escribe el panel (alta, pausa, borrado). El script los guarda antes del
+  reset y los devuelve después, así que lo cargado desde el panel sobrevive al
+  deploy. Por eso el `--diff` los muestra como modificados: es normal.
 - `data/used_items.json` no está en el repo; si falta, el bot vuelve a publicar
   notas que ya salieron.
 - El script agrega `PANEL_SECRET`, `PANEL_TRUST_PROXY=1` y `PANEL_COOKIE_SECURE=1`
