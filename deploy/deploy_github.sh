@@ -345,6 +345,14 @@ if [ "$EN_SITIO" = 1 ]; then
   aviso "variables.env: presente ($(grep -c -E '^[A-Za-z_][A-Za-z0-9_]*=' "$PROD_DIR/variables.env" 2>/dev/null || echo 0) variables)"
   [ -f "$PROD_DIR/data/used_items.json" ] || aviso "OJO: no veo data/used_items.json (sin historial se republica todo)"
   aviso "estado: queda como está (variables.env, data/, logs/, token_jwt/, keys/, config/)"
+  # logs/ y data/ no viajan en git (.gitignore): en un clon limpio no existen y
+  # las líneas de cron que redirigen a ./logs (o /app/logs si /app es el
+  # directorio) fallan antes de ejecutar el worker: el cron no corre y no deja
+  # ni una línea de log. Se recrean acá para que el crash no sea silencioso.
+  for d in logs data; do
+    [ -d "$PROD_DIR/$d" ] || { mkdir -p "$PROD_DIR/$d" 2>/dev/null \
+      && aviso "$d/: creado (faltaba: el cron no podía escribir su log)"; }
+  done
 else
   if [ -f "$WORK_DIR/variables.env" ]; then
     aviso "variables.env: ya estaba en el clon, lo dejo"
